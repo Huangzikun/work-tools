@@ -29,7 +29,7 @@ df = df[df['student_id'].str.match(r'^\d+$')]
 #固定目录
 must_mkdirs = [
     '教学课件',
-    '教学教案'
+    '教学教案',
 ]
 for must_mkdir in must_mkdirs:
     folder_path = os.path.join(directory, f"{class_name}《{course_name}》{must_mkdir}{teacher_name}")

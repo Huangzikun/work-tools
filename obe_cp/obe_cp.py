@@ -2,7 +2,18 @@ import os
 import pandas as pd
 import shutil
 import argparse
+import sys
 
+def copy_student_file(file, old_path, destination_path):
+    if os.path.isfile(os.path.join(old_path, file)):
+        old = os.path.join(old_path, file)
+        shutil.copy(old, destination_path)
+        print(f"复制{old}->{destination_path}")
+    else:
+        new_old_path =os.path.join(old_path, file)
+        file_list = os.listdir(new_old_path)
+        for file in file_list:
+            copy_student_file(file, new_old_path, destination_path)
 
 '''
 执行内容
@@ -42,14 +53,15 @@ for index, row in df.iterrows():
 
     for file in file_list:
         if student_id in file:
-            shutil.copy(os.path.join(old_dir, file), student_path)
-            print(f"复制{student_id}")
+            copy_student_file(file, old_dir, student_path)
             count = count + 1
             break
         elif student_name in file:
-            shutil.copy(os.path.join(old_dir, file), student_path)
+            copy_student_file(file, old_dir, student_path)
             print(f"复制{student_id}")
             count = count + 1
             break
 
 print(f"复制成功{count}")
+
+
