@@ -34,30 +34,37 @@ file_list = os.listdir(old_dir)
 
 df = df.apply(lambda x: x.str.replace('\t', ''))
 df = df[df['student_id'].str.match(r'^\d+$')]
-
-# 遍历 DataFrame
-for index, row in df.iterrows():
-    student_id = str(row['student_id'])
-    student_name = row['student_name']
-    student_path = os.path.join(new_dir, f"{student_id}{student_name}")
-    os.makedirs(student_path, exist_ok=True)
-
+#
+# # 遍历 DataFrame
+# for index, row in df.iterrows():
+#     student_id = str(row['student_id'])
+#     student_name = row['student_name']
+#     student_path = os.path.join(new_dir, f"{student_id}{student_name}")
+#     os.makedirs(student_path, exist_ok=True)
+#
 
 
 count = 0
 
+student_path_list = os.listdir(new_dir)
+
 for index, row in df.iterrows():
     student_id = str(row['student_id'])
     student_name = row['student_name']
-    student_path = os.path.join(new_dir, f"{student_id}{student_name}")
+
+    use_student_path = ''
+    for student_path in student_path_list:
+        if student_id in student_path:
+            use_student_path = os.path.join(new_dir, student_path)
+            break
 
     for file in file_list:
         if student_id in file:
-            copy_student_file(file, old_dir, student_path)
+            copy_student_file(file, old_dir, use_student_path)
             count = count + 1
             break
         elif student_name in file:
-            copy_student_file(file, old_dir, student_path)
+            copy_student_file(file, old_dir, use_student_path)
             print(f"复制{student_id}")
             count = count + 1
             break
