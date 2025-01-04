@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import argparse
+import re
 
 '''
 执行内容
@@ -15,6 +16,8 @@ parser.add_argument('--need_mkdir_str', type=str, help='需要创建的目录，
 #获取参数
 args = parser.parse_args()
 class_name = args.class_name
+# 去掉左边的数字作为专业名
+major_name = re.sub(r"^\d*", "", class_name)
 course_name = args.course_name
 teacher_name = args.teacher_name
 directory = args.directory
@@ -53,5 +56,5 @@ for need_mkdir in needMkdirs:
     for index, row in df.iterrows():
         student_id = str(row['student_id'])
         student_name = row['student_name']
-        student_path = os.path.join(folder_path, f"{student_id}{class_name}{student_name}")
+        student_path = os.path.join(folder_path, f"{student_id}{major_name}{student_name}")
         os.makedirs(student_path, exist_ok=True)
