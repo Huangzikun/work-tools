@@ -159,7 +159,7 @@ if os_platform != 'Windows':
 
 print("1.开始获取成绩单数据")
 if transcript_path:
-    score_df = get_score_from_file(transcript_path, sid_col, score_col,skip_rows=data_row-1)
+    score_df = get_score_from_file(transcript_path, sid_col, score_col,skip_rowsdata_row-1)
 else:
     score_df = None
 

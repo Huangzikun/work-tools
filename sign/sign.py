@@ -1,7 +1,12 @@
 import os
 from docx import Document
 from docx.shared import Cm
-from win32com import client as wc
+import platform
+
+# 根据操作系统类型引入不同的包
+if platform.system() == 'Windows':
+    from win32com import client as wc
+
 import platform
 import argparse
 
@@ -51,7 +56,7 @@ def sign_by_picture(file_path):
             for i in range(len(row.cells)):
 
                 if str.strip(row.cells[i].text) == '教师评阅':
-                    row.cells[i + 1].text = (f"合格"
+                    row.cells[i + 1].text = (f"已阅"
                                              f"{os.linesep}"
                                              f"{os.linesep}"
                                              f"{os.linesep}"
@@ -72,45 +77,37 @@ def sign_by_picture(file_path):
 '''
 parser = argparse.ArgumentParser()
 parser.add_argument('--base_path', type=str, help='原始文件目录', required=True)
-parser.add_argument('--save_path', type=str, help='保存文件目录', required=True)
 parser.add_argument('--sign_picture', type=str, help='签名图片地址', required=True)
 parser.add_argument('--sign', type=str, help='签名字符串，如某某某', required=True)
 parser.add_argument('--sign_date', type=str, help='签名时间', required=True)
-parser.add_argument('--only_sign', type=str, help='只需要签名', default=False)
+args = parser.parse_args()
 
 #获取参数
-args = parser.parse_args()
 base_path = args.base_path
-save_path = args.save_path
 sign_picture = args.sign_picture
 sign = args.sign
 sign_date = args.sign_date
-only_sign = args.only_sign
 
 
 os_platform = platform.system()
 print(f"当前运行平台: {os_platform}")
-
-if os_platform != 'Windows' and only_sign != True:
-    print("格式转换必须在Windows平台上进行且需要包含Office套件以支持doc文件. 如果只需要签名请添加 --only_sign=True")
-    exit(0)
-
-print("开始转换doc->docx")
-student_file_list = os.listdir(base_path)
-for student in student_file_list:
-    file_list = get_file_list(os.path.join(base_path, student))
-    if len(file_list) > 0:
-        for file in file_list:
-            doc_to_docx(file)
-
-print("开始转换docx转换完成.")
 print("开始签署")
-student_file_list = os.listdir(save_path)
+
+student_file_list = os.listdir(base_path)
+
+error_file_list = []
 for student in student_file_list:
-    file_list = get_file_list(os.path.join(save_path, student))
+
+    if student.startswith("."):
+        continue
+    file_list = get_file_list(os.path.join(base_path, student))
     for file in file_list:
+        if file.endswith(".doc"):
+            error_file_list.append(os.path.join(base_path, student, file))
+            continue
         sign_by_picture(file)
 
 print("签署完成.")
+print(error_file_list)
 
 
