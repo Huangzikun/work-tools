@@ -1,9 +1,16 @@
 import logging
-
 from flask import Blueprint, request
 import os
 import re
 import pandas as pd
+import shutil
+import argparse
+import sys
+import hashlib
+import zipfile
+import tarfile
+import rarfile
+import tempfile
 
 BASE_PATH = '/tmp/obe_test'
 
@@ -48,7 +55,8 @@ def obe_mkdir():
             '教学教案',
         ]
 
-        directory = os.path.join(BASE_PATH, f"{class_name}《{course_name}》{teacher_name}{df.shape[0]}份汇总")
+        return_directory = f"{class_name}《{course_name}》{teacher_name}{df.shape[0]}份汇总"
+        directory = os.path.join(BASE_PATH, return_directory)
 
         for must_mkdir in must_mkdirs:
             folder_path = os.path.join(directory, f"{class_name}《{course_name}》{must_mkdir}{teacher_name}")
@@ -80,8 +88,164 @@ def obe_mkdir():
             'msg': '目录创建成功',
                 'data': {
                     'directory_list': dir_list,
-                    'base_dir': directory,
+                    'base_dir': return_directory,
                     }
                 }
     except Exception as e:
         return {'error': str(e)}, 500
+
+
+@obe_bp.route('/obe/filelist', methods=['POST'])
+def filelist():
+    data = request.form
+    path = data.get('path')
+    if not path:
+        return {'code': 400, 'msg': 'path is required'}
+
+    directory = os.path.join(BASE_PATH, path)
+    try:
+        dir_list = [d for d in os.listdir(directory) if os.path.isdir(os.path.join(directory, d))]
+
+        return {
+            'code': 0,
+            'msg': '目录查询成功',
+            'data': {
+                'directory_list': dir_list,
+                'base_dir': path,
+            }
+        }
+    except Exception as e:
+        return {'error': str(e)}, 500
+
+@obe_bp.route('/obe/upload', methods=['POST'])
+def upload():
+    data = request.form
+    path = data.get('path')
+    if not path:
+        return {'code': 400, 'msg': 'path is required'}
+    base_dir = data.get('base_dir')
+    if not base_dir:
+        return {'code': 400, 'msg': 'base_dir is required'}
+
+    # 获取上传的文件
+    file = request.files.get('file')
+    if not file:
+        return {'code': 400, 'msg': '文件未上传'}
+
+    base_dir = os.path.join(BASE_PATH, base_dir)
+    new_dir = os.path.join(base_dir, path)
+
+    old_dir = os.path.join(base_dir, 'temp')
+
+    # if os.path.exists(old_dir):
+    #     return {'code': 400, 'msg': '有上传任务正在进行,请完成后重试'}
+
+    logging.info(f"上传文件: {file.filename}")
+    os.makedirs(old_dir, exist_ok=True)
+
+    uploadFilePath = os.path.join(old_dir, file.filename)
+    file.save(uploadFilePath)
+    logging.info(f"已复制的上传文件: {uploadFilePath}")
+
+    file_ext = file.filename.split('.')[-1]
+
+    if file_ext == 'zip':
+        with zipfile.ZipFile(uploadFilePath, 'r') as zip_ref:
+            zip_ref.extractall(old_dir)
+    elif ''.join(file.filename.split('.')[-2:]) == 'tar.gz':
+        with tarfile.open(fileobj=uploadFilePath, mode='r:gz') as tar_ref:
+            tar_ref.extractall(old_dir)
+    elif file_ext == 'rar':
+        with rarfile.RarFile(uploadFilePath) as rar_ref:
+            rar_ref.extractall(old_dir)
+
+    old_dir = os.path.join(old_dir, file.filename.split('.')[0])
+    # 路径中有数字判断为学生材料文件
+    if re.search(r'\d', new_dir):
+        df = pd.read_excel(os.path.join(base_dir, '名单.xlsx'), names=['student_id', 'student_name', "1", "2"])
+        file_list = os.listdir(old_dir)
+        logging.info(f"len(file_list): {len(file_list)}")
+        df = df.apply(lambda x: x.str.replace('\t', ''))
+        df = df[df['student_id'].str.match(r'^\d+$')]
+        file_count = 0
+        student_path_list = os.listdir(new_dir)
+
+        for index, row in df.iterrows():
+            student_id = str(row['student_id'])
+            student_name = row['student_name']
+
+            use_student_path = ''
+            for student_path in student_path_list:
+                if student_id in student_path:
+                    use_student_path = os.path.join(new_dir, student_path)
+                    break
+
+            logging.info(f"匹配到的学生路径: {use_student_path}")
+            for file in file_list:
+                if student_id in file:
+                    copy_student_file(file, old_dir, use_student_path)
+                    logging.info(f"复制{student_id}")
+                    file_count = file_count + 1
+                    break
+                elif student_name in file:
+                    copy_student_file(file, old_dir, use_student_path)
+                    logging.info(f"复制{student_id}")
+                    file_count = file_count + 1
+                    break
+
+        logging.info(f"复制成功{file_count}")
+    else:
+        dir_list = [d for d in os.listdir(old_dir) if os.path.isdir(os.path.join(old_dir, d))]
+        for dir in dir_list:
+            shutil.copy(dir, new_dir)
+
+    return {'code': 0, 'msg': 'success'}
+
+def calculate_sha256(file_path):
+    hash_object = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b''):
+            hash_object.update(chunk)
+    return hash_object.hexdigest()
+
+
+def file_name_index(file, old_path, destination_path):
+    file_list = os.listdir(destination_path)
+
+    file_md5_list = {}
+    for old_file in file_list:
+        file_md5_list[calculate_sha256(os.path.join(destination_path, old_file))] = old_file
+
+    old_md5 = calculate_sha256(os.path.join(old_path, file))
+
+    #覆盖
+    if old_md5 in file_md5_list:
+        return os.path.join(destination_path, file_md5_list[old_md5])
+    else:
+        file_count = len(file_list)+1
+        return os.path.join(destination_path, add_suffix_before_extension(file, file_count))
+
+
+def add_suffix_before_extension(file_name, suffix):
+    """
+    将后缀添加在原文件名与原后缀之间
+    """
+    base_name, ext = file_name.rsplit('.', 1)
+    new_file_name = f"{base_name}_{suffix}.{ext}"
+    return new_file_name
+
+
+def copy_student_file(file, old_path, destination_path):
+    if os.path.isfile(os.path.join(old_path, file)):
+        old = os.path.join(old_path, file)
+
+        destination_path_file = file_name_index(file, old_path, destination_path)
+
+        shutil.copy(old, destination_path_file)
+        print(f"复制{old}->{destination_path_file}")
+    else:
+        new_old_path =os.path.join(old_path, file)
+        file_list = os.listdir(new_old_path)
+        for file in file_list:
+            copy_student_file(file, new_old_path, destination_path)
+
