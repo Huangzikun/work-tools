@@ -4,13 +4,13 @@ import os
 import re
 import pandas as pd
 import shutil
-import argparse
-import sys
 import hashlib
 import zipfile
 import tarfile
 import rarfile
-import tempfile
+import stat
+
+from werkzeug.utils import secure_filename
 
 BASE_PATH = '/tmp/obe_test'
 
@@ -43,8 +43,16 @@ def obe_mkdir():
     if file.filename.split('.')[-1] != 'xlsx':
         return {'code': 400, 'msg': '文件格式必须为 xlsx'}
 
+    # 复制上传的文件
+    return_directory = f"{class_name}《{course_name}》{teacher_name}"
+    directory = os.path.join(BASE_PATH, return_directory)
+    os.makedirs(directory, exist_ok=True)
+
+    file_path = os.path.join(directory, file.filename)
+    file.save(file_path)
+
     try:
-        df = pd.read_excel(file, names=['student_id', 'student_name', "1", "2"])
+        df = pd.read_excel(file_path, names=['student_id', 'student_name', "1", "2"])
         # 名单处理
         df = df.apply(lambda x: x.str.replace('\t', ''))
         df = df[df['student_id'].str.match(r'^\d+$')]
@@ -55,8 +63,6 @@ def obe_mkdir():
             '教学教案',
         ]
 
-        return_directory = f"{class_name}《{course_name}》{teacher_name}{df.shape[0]}份汇总"
-        directory = os.path.join(BASE_PATH, return_directory)
 
         for must_mkdir in must_mkdirs:
             folder_path = os.path.join(directory, f"{class_name}《{course_name}》{must_mkdir}{teacher_name}")
@@ -78,8 +84,8 @@ def obe_mkdir():
                 student_path = os.path.join(folder_path, f"{student_id}{major_name}{student_name}")
                 os.makedirs(student_path, exist_ok=True)
 
-        #复制上传的文件
-        file.save(os.path.join(directory, '名单.xlsx'))
+
+
         # 获取 directory 下的目录列表
         dir_list = [d for d in os.listdir(directory) if os.path.isdir(os.path.join(directory, d))]
 
@@ -199,7 +205,9 @@ def upload():
         for dir in dir_list:
             shutil.copy(dir, new_dir)
 
-    return {'code': 0, 'msg': 'success'}
+    return {'code': 0, 'msg': 'success', data: {
+        'success_count': file_count,
+    }}
 
 def calculate_sha256(file_path):
     hash_object = hashlib.sha256()
@@ -242,7 +250,7 @@ def copy_student_file(file, old_path, destination_path):
         destination_path_file = file_name_index(file, old_path, destination_path)
 
         shutil.copy(old, destination_path_file)
-        print(f"复制{old}->{destination_path_file}")
+        logging.info(f"复制{old}->{destination_path_file}")
     else:
         new_old_path =os.path.join(old_path, file)
         file_list = os.listdir(new_old_path)
