@@ -111,12 +111,22 @@ def filelist():
     directory = os.path.join(BASE_PATH, path)
     try:
         dir_list = [d for d in os.listdir(directory) if os.path.isdir(os.path.join(directory, d))]
+        # 新增：统计每个目录的文件和子目录数量
+        dir_list_value = []
+        for dir_name in dir_list:
+            dir_path = os.path.join(directory, dir_name)
+            filtered_items = [item for item in os.listdir(dir_path) if not item.startswith('.')]
+            file_count = len(filtered_items)
+            dir_list_value.append({
+                'directory': dir_name,
+                'file_count': file_count,
+            })
 
         return {
             'code': 0,
             'msg': '目录查询成功',
             'data': {
-                'directory_list': dir_list,
+                'directory_list': dir_list_value,
                 'base_dir': path,
             }
         }
