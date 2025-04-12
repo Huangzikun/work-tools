@@ -139,22 +139,27 @@ def upload():
     path = data.get('path')
     if not path:
         return {'code': 400, 'msg': 'path is required'}
-    base_dir = data.get('base_dir')
-    if not base_dir:
-        return {'code': 400, 'msg': 'base_dir is required'}
+    base_dir = path.split('/')[0]
+    path = "/".join(path.split('/')[1:])
 
+    if base_dir == '':
+        return {'code': 400,'msg': 'path is required'}
     # 获取上传的文件
     file = request.files.get('file')
     if not file:
         return {'code': 400, 'msg': '文件未上传'}
+
+
+    logging.info(f"上传文件: base_dir: {base_dir}")
+    logging.info(f"上传文件: path: {path}")
 
     base_dir = os.path.join(BASE_PATH, base_dir)
     new_dir = os.path.join(base_dir, path)
 
     old_dir = os.path.join(base_dir, 'temp')
 
-    # if os.path.exists(old_dir):
-    #     return {'code': 400, 'msg': '有上传任务正在进行,请完成后重试'}
+    if os.path.exists(old_dir):
+        return {'code': 400, 'msg': '有上传任务正在进行,请完成后重试'}
 
     logging.info(f"上传文件: {file.filename}")
     os.makedirs(old_dir, exist_ok=True)
@@ -168,22 +173,16 @@ def upload():
     if file_ext == 'zip':
         with zipfile.ZipFile(uploadFilePath, 'r') as zip_ref:
             zip_ref.extractall(old_dir)
-    elif ''.join(file.filename.split('.')[-2:]) == 'tar.gz':
-        with tarfile.open(fileobj=uploadFilePath, mode='r:gz') as tar_ref:
-            tar_ref.extractall(old_dir)
-    elif file_ext == 'rar':
-        with rarfile.RarFile(uploadFilePath) as rar_ref:
-            rar_ref.extractall(old_dir)
 
-    old_dir = os.path.join(old_dir, file.filename.split('.')[0])
+    save_dir = os.path.join(old_dir, file.filename.split('.')[0])
     # 路径中有数字判断为学生材料文件
+    file_count = 0
     if re.search(r'\d', new_dir):
         df = pd.read_excel(os.path.join(base_dir, '名单.xlsx'), names=['student_id', 'student_name', "1", "2"])
-        file_list = os.listdir(old_dir)
+        file_list = os.listdir(save_dir)
         logging.info(f"len(file_list): {len(file_list)}")
         df = df.apply(lambda x: x.str.replace('\t', ''))
         df = df[df['student_id'].str.match(r'^\d+$')]
-        file_count = 0
         student_path_list = os.listdir(new_dir)
 
         for index, row in df.iterrows():
@@ -199,23 +198,27 @@ def upload():
             logging.info(f"匹配到的学生路径: {use_student_path}")
             for file in file_list:
                 if student_id in file:
-                    copy_student_file(file, old_dir, use_student_path)
+                    copy_student_file(file, save_dir, use_student_path)
                     logging.info(f"复制{student_id}")
                     file_count = file_count + 1
                     break
                 elif student_name in file:
-                    copy_student_file(file, old_dir, use_student_path)
+                    copy_student_file(file, save_dir, use_student_path)
                     logging.info(f"复制{student_id}")
                     file_count = file_count + 1
                     break
 
         logging.info(f"复制成功{file_count}")
     else:
-        dir_list = [d for d in os.listdir(old_dir) if os.path.isdir(os.path.join(old_dir, d))]
+        dir_list = [d for d in os.listdir(save_dir) if os.path.isdir(os.path.join(save_dir, d))]
         for dir in dir_list:
             shutil.copy(dir, new_dir)
 
-    return {'code': 0, 'msg': 'success', data: {
+    # 删除临时文件
+    if os.path.exists(old_dir):
+        shutil.rmtree(old_dir)
+
+    return {'code': 0, 'msg': 'success', 'data': {
         'success_count': file_count,
     }}
 
