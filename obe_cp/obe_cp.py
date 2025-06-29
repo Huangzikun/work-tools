@@ -2,8 +2,7 @@ import os
 import pandas as pd
 import shutil
 import argparse
-import sys
-
+import zipfile
 import hashlib
 
 def calculate_sha256(file_path):
@@ -39,20 +38,45 @@ def add_suffix_before_extension(file_name, suffix):
     new_file_name = f"{base_name}_{suffix}.{ext}"
     return new_file_name
 
+def is_archive(file_path):
+    archive_extensions = (
+        '.zip'
+    )
+
+    return file_path.lower().endswith(archive_extensions)
 
 def copy_student_file(file, old_path, destination_path):
-    if os.path.isfile(os.path.join(old_path, file)):
-        old = os.path.join(old_path, file)
 
-        destination_path_file = file_name_index(file, old_path, destination_path)
+    old_full_path = os.path.join(old_path, file)
+    if is_archive(old_full_path):
+            # 创建临时解压目录
+            temp_dir = os.path.join(old_path, f"{file}.extracted")
+            os.makedirs(temp_dir, exist_ok=True)
 
-        shutil.copy(old, destination_path_file)
-        print(f"复制{old}->{destination_path_file}")
+            try:
+                # 解压ZIP文件
+                with zipfile.ZipFile(old_full_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+
+                # 递归复制解压后的所有文件
+                for item in os.listdir(temp_dir):
+                    copy_student_file(item, temp_dir, destination_path)
+            finally:
+                # 清理临时目录
+                shutil.rmtree(temp_dir)
+                print(f"已清理临时目录: {temp_dir}")
+
     else:
-        new_old_path =os.path.join(old_path, file)
-        file_list = os.listdir(new_old_path)
-        for file in file_list:
-            copy_student_file(file, new_old_path, destination_path)
+        if os.path.isfile(old_full_path):
+            destination_path_file = file_name_index(file, old_path, destination_path)
+
+            shutil.copy(old_full_path, destination_path_file)
+            print(f"复制{old_full_path}->{destination_path_file}")
+        else:
+            new_old_path =os.path.join(old_path, file)
+            file_list = os.listdir(new_old_path)
+            for file in file_list:
+                copy_student_file(file, new_old_path, destination_path)
 
 '''
 执行内容

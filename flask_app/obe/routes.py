@@ -269,4 +269,3 @@ def copy_student_file(file, old_path, destination_path):
         file_list = os.listdir(new_old_path)
         for file in file_list:
             copy_student_file(file, new_old_path, destination_path)
-
