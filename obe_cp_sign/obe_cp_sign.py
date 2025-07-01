@@ -1,4 +1,6 @@
 import os
+import subprocess
+
 import pandas as pd
 import shutil
 import argparse
@@ -8,6 +10,62 @@ from volcenginesdkarkruntime import Ark
 import json
 from docx import Document
 from docx.shared import Cm
+from pathlib import Path
+
+"""
+将单个 .doc 文件转换为 .docx 格式，并删除原文件。
+:param file_path: .doc 文件路径
+:return: 转换后的 .docx 文件路径 或 None
+"""
+def doc_to_docx(file_path):
+    try:
+        # 规范化路径
+        file_path = Path(file_path).resolve()
+        if not file_path.exists():
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+
+        # 检查扩展名是否正确
+        if file_path.suffix.lower() != ".doc":
+            raise ValueError(f"仅支持 .doc 文件: {file_path}")
+
+        print(f"正在转换: {file_path}")
+
+        # 构建输出目录和目标路径
+        output_dir = file_path.parent
+        new_file_path = file_path.with_suffix(".docx")
+
+        # 构建命令
+        command = [
+            'libreoffice',
+            '--headless',  # 无界面运行
+            '--convert-to', 'docx',  # 转换为目标格式
+            '--outdir', str(output_dir),  # 输出目录
+            str(file_path)  # 输入文件
+        ]
+
+        # 执行转换
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+
+        # 检查转换结果
+        if new_file_path.exists():
+            file_path.unlink()
+            print(f"成功转换并删除原文件: {new_file_path}")
+            return str(new_file_path)
+        else:
+            raise Exception("转换失败，未生成 .docx 文件")
+
+    except subprocess.CalledProcessError as e:
+        print(f"LibreOffice 执行失败: {e.stderr}")
+        return None
+    except Exception as e:
+        print(f"文件转换失败: {e}")
+        return None
 
 def extract_table_text(doc):
 
@@ -116,7 +174,7 @@ def score_and_sign(destination_path_file):
         sign_by_picture(destination_path_file, destination_path_file, result["score"], result["comment"])
         return result["score"]
     except Exception as e:
-        print(f"签名失败. file_path={destination_path_file}")
+        print(f"签名失败. file_path={destination_path_file}, error={e}")
         return 0
 
 def copy_student_file(file, old_path, destination_path):
@@ -147,12 +205,20 @@ def copy_student_file(file, old_path, destination_path):
             shutil.copy(old_full_path, destination_path_file)
             print(f"新文件名：{destination_path_file}")
 
+            if destination_path_file.endswith(".doc"):
+                doc_to_docx(destination_path_file)
+
             return score_and_sign(destination_path_file)
         else:
             new_old_path =os.path.join(old_path, file)
             file_list = os.listdir(new_old_path)
             for file in file_list:
                 return copy_student_file(file, new_old_path, destination_path)
+
+
+
+
+##TEST
 
 '''
 执行内容
@@ -174,7 +240,7 @@ sign_picture = args.sign_picture
 sign = args.sign
 sign_date = args.sign_date
 
-teacher = "实验报告针对归并与快速排序实验，目的应包含分治算法的基本思想；实验原理应包括分治、合并和解决；结果分析应对比两种排序。若每项内容均包含并符合算法思想，应得"
+teacher = "实验报告针对A*算法应用在8数码问题上的图遍历过程，目的应包含A*算法如何解决该问题；实验原理应包括A*算法的思想；结果分析应对A*算法进行总结。若实验目的、原理、结果分析均完善，应得100分；某一项有内容但不完整，应的90分；缺少某一项应得80分；缺少两项及以上应得70分。"
 
 
 # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
@@ -226,7 +292,7 @@ for index, row in df.iterrows():
     })
 
 print(f"复制成功{file_count}")
-pd.DataFrame(score_list).to_excel(os.path.join(directory, '实验报告1.xlsx'), index=False)
+pd.DataFrame(score_list).to_excel(os.path.join(directory, '实验报告3.xlsx'), index=False)
 
 
 
