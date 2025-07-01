@@ -152,30 +152,36 @@ def score_and_sign(destination_path_file):
     if not destination_path_file.endswith("docx"):
         print(f"不是docx文件无法签名. file_path={destination_path_file}")
         return 0
-    try:
-        document = Document(destination_path_file)
-        document_text = extract_table_text(document)
 
-        completion = client.chat.completions.create(
-            # 指定您创建的方舟推理接入点 ID，此处已帮您修改为您的推理接入点 ID
-            model="doubao-seed-1-6-250615",
-            messages=[
-                {"role": "system",
-                 "content": "你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的“教师要求”部分对“学生作答”部分进行批阅。你可以选择的分数为70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"},
-                {"role": "user", "content": f"教师要求:{teacher};学生作答:{document_text}"},
-            ],
-            response_format={
-                "type": "json_object",
-            }
-        )
+    retry = 3
+    while retry > 0:
+        print(f"retry={retry}")
+        try:
+            document = Document(destination_path_file)
+            document_text = extract_table_text(document)
 
-        print(completion.choices[0].message.content)
-        result = json.loads(completion.choices[0].message.content)
-        sign_by_picture(destination_path_file, destination_path_file, result["score"], result["comment"])
-        return result["score"]
-    except Exception as e:
-        print(f"签名失败. file_path={destination_path_file}, error={e}")
-        return 0
+            completion = client.chat.completions.create(
+                # 指定您创建的方舟推理接入点 ID，此处已帮您修改为您的推理接入点 ID
+                model="doubao-seed-1-6-250615",
+                messages=[
+                    {"role": "system",
+                     "content": "你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的“教师要求”部分对“学生作答”部分进行批阅。你可以选择的分数为60,70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"},
+                    {"role": "user", "content": f"教师要求:{teacher};学生作答:{document_text}"},
+                ],
+                response_format={
+                    "type": "json_object",
+                },
+            )
+
+            print(completion.choices[0].message.content)
+            result = json.loads(completion.choices[0].message.content)
+            sign_by_picture(destination_path_file, destination_path_file, result["score"], result["comment"])
+            return result["score"]
+        except Exception as e:
+            print(f"签名失败. file_path={destination_path_file}, error={e}")
+            retry = retry - 1
+
+    return 0
 
 def copy_student_file(file, old_path, destination_path):
 
@@ -206,7 +212,7 @@ def copy_student_file(file, old_path, destination_path):
             print(f"新文件名：{destination_path_file}")
 
             if destination_path_file.endswith(".doc"):
-                doc_to_docx(destination_path_file)
+                destination_path_file = doc_to_docx(destination_path_file)
 
             return score_and_sign(destination_path_file)
         else:
@@ -240,9 +246,15 @@ sign_picture = args.sign_picture
 sign = args.sign
 sign_date = args.sign_date
 
-teacher = "实验报告针对A*算法应用在8数码问题上的图遍历过程，目的应包含A*算法如何解决该问题；实验原理应包括A*算法的思想；结果分析应对A*算法进行总结。若实验目的、原理、结果分析均完善，应得100分；某一项有内容但不完整，应的90分；缺少某一项应得80分；缺少两项及以上应得70分。"
-
-
+#teacher = "实验报告针对A*算法应用在8数码问题上的图遍历过程，目的应包含A*算法如何解决该问题；实验原理应包括A*算法的思想；结果分析应对A*算法进行总结。若实验目的、原理、结果分析均完善，应得100分；某一项有内容但不完整，应的90分；缺少某一项应得80分；缺少两项及以上应得70分。"
+teacher = '''
+实验报告针对分治算法中的归并排序和快速排序，目的应包含分治思想如何应用于这两种排序算法；
+实验原理应包括归并排序的'分-治-合'过程及快速排序的'分区-递归'思想；
+结果分析应对两种算法的时间复杂度、空间复杂度及适用场景进行对比总结。
+若实验目的、原理、结果分析均完善，应得100分；某一项有内容但不完整，应得90分；
+缺少某一项应得80分；缺少两项应得70分；
+缺少两项以上应得50分。
+'''
 # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
 # 初始化Ark客户端，从环境变量中读取您的API Key
 client = Ark(
