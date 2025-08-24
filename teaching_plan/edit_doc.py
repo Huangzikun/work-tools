@@ -2,7 +2,7 @@ import json
 from docx import Document
 from volcenginesdkarkruntime import Ark
 import os
-need_AI = False
+need_AI = True
 
 AI_keys = ['课堂内容']
 
@@ -31,8 +31,9 @@ def replace_doc_placeholders(doc_name, data, num):
     for key in data.keys():
         data[key] = AI_help(key, data[key])
 
-    data['授课学时'] = 3
-    data['课堂内容时间分配'] = 110
+    data['授课学时'] = 2
+    data['课堂导入时间分配'] = 5
+    data['课堂内容时间分配'] = 70
     data['课堂小结时间分配'] = 5
     """
     替换Word文档中的占位符（格式：{{key}}）为对应的值
@@ -64,7 +65,7 @@ def replace_doc_placeholders(doc_name, data, num):
 if __name__ == "__main__":
 
     # 加载模板文档（请确保文件路径正确）
-    template_path = "理论课教案-V1.docx"
+    template_path = "/Users/huangzikun/PycharmProjects/work-tools/teaching_plan/数据结构实验教案-V1.docx"
     doc = Document(template_path)
 
     # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
@@ -77,7 +78,7 @@ if __name__ == "__main__":
     )
 
     # 新增：解析JSON字符串为Python对象
-    with open('temp_plan.txt', 'r') as file:
+    with open('/Users/huangzikun/PycharmProjects/work-tools/teaching_plan/temp_plan.txt', 'r') as file:
         lesson_plans = json.load(file, strict=False)
 
     count = 1
