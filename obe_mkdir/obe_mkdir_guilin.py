@@ -17,8 +17,8 @@ parser.add_argument('--roster_file', type=str, help='名单文件名，默认：
 #获取参数
 args = parser.parse_args()
 class_name = args.class_name
-# 去掉左边的数字作为专业名
-major_name = re.sub(r"^\d*", "", class_name)
+# 去掉开头的数字和"级"字作为专业名
+major_name = re.sub(r"^\d+级", "", class_name)
 course_name = args.course_name
 teacher_name = args.teacher_name
 directory = args.directory

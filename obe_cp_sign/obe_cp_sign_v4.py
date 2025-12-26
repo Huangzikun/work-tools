@@ -13,6 +13,28 @@ from docx.shared import Cm
 from pathlib import Path
 from docx.text.paragraph import Paragraph
 
+# 默认的 System 提示词
+DEFAULT_SYSTEM_PROMPT = """你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的"教师要求"部分对"学生作答"部分进行批阅。你可以选择的分数为60,70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"""
+
+
+def load_prompt(file_path, default_prompt=None):
+    """
+    从文件加载提示词，如果文件不存在则使用默认值
+    :param file_path: 提示词文件路径
+    :param default_prompt: 默认提示词（可选）
+    :return: 提示词字符串
+    """
+    if file_path and os.path.exists(file_path):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    elif default_prompt:
+        if file_path:
+            print(f"提示: 提示词文件 {file_path} 不存在，使用默认提示词")
+        return default_prompt
+    else:
+        raise FileNotFoundError(f"提示词文件 {file_path} 不存在且无默认值")
+
+
 """
 将单个 .doc 文件转换为 .docx 格式，并删除原文件。
 :param file_path: .doc 文件路径
@@ -216,7 +238,7 @@ def is_archive(file_path):
 
     return file_path.lower().endswith(archive_extensions)
 
-def score_and_sign(destination_path_file):
+def score_and_sign(destination_path_file, system_prompt, teacher_prompt):
     if not destination_path_file.endswith("docx"):
         print(f"不是docx文件无法签名. file_path={destination_path_file}")
         return 0
@@ -232,9 +254,8 @@ def score_and_sign(destination_path_file):
                 # 指定您创建的方舟推理接入点 ID，此处已帮您修改为您的推理接入点 ID
                 model="doubao-seed-1-6-lite-251015",
                 messages=[
-                    {"role": "system",
-                     "content": "你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的"教师要求"部分对"学生作答"部分进行批阅。你可以选择的分数为60,70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"},
-                    {"role": "user", "content": f"教师要求:{teacher};学生作答:{document_text}"},
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"教师要求:{teacher_prompt};学生作答:{document_text}"},
                 ],
                 response_format={
                     "type": "json_object",
@@ -251,7 +272,7 @@ def score_and_sign(destination_path_file):
 
     return 0
 
-def copy_student_file(file, old_path, destination_path):
+def copy_student_file(file, old_path, destination_path, system_prompt, teacher_prompt):
 
     old_full_path = os.path.join(old_path, file)
     if is_archive(old_full_path):
@@ -267,7 +288,7 @@ def copy_student_file(file, old_path, destination_path):
                 # 递归复制解压后的所有文件
                 temp_score = 0
                 for item in os.listdir(temp_dir):
-                    temp_score = max(temp_score, copy_student_file(item, temp_dir, destination_path))
+                    temp_score = max(temp_score, copy_student_file(item, temp_dir, destination_path, system_prompt, teacher_prompt))
                 return temp_score
 
             finally:
@@ -296,7 +317,7 @@ def copy_student_file(file, old_path, destination_path):
                 if destination_path_file.endswith(".doc"):
                     destination_path_file = doc_to_docx(destination_path_file)
 
-                return score_and_sign(destination_path_file)
+                return score_and_sign(destination_path_file, system_prompt, teacher_prompt)
             except Exception as e:
                 print(f"签名失败. file_path={destination_path_file}, error={e}")
                 return 0
@@ -309,6 +330,33 @@ def copy_student_file(file, old_path, destination_path):
                 max_score = max(max_score, copy_student_file(file, new_old_path, destination_path))
             return max_score
 
+
+def load_roster(directory, roster_file):
+    """
+    加载桂林学院格式学生名单（HTML格式的XLS文件）
+    :param directory: 名单所在目录
+    :param roster_file: 名单文件名
+    :return: DataFrame，包含 student_id 和 student_name 列
+    """
+    roster_path = os.path.join(directory, roster_file)
+    print(f"读取桂林学院格式名单: {roster_path}")
+
+    tables = pd.read_html(roster_path)
+    df = tables[1]  # 表格1是学生名单
+
+    # 处理 MultiIndex 列名
+    df.columns = df.columns.droplevel(1)
+
+    # 提取学号和姓名列，并重命名
+    df = df[['序号', '行政班级', '学号', '姓名']].copy()
+    df.columns = ['seq', 'student_class', 'student_id', 'student_name']
+
+    # 名单处理：学号转字符串并筛选有效学生
+    df['student_id'] = df['student_id'].astype(str)
+    df = df[df['student_id'].str.match(r'^\d+$')]
+
+    print(f"成功加载 {len(df)} 名学生")
+    return df
 
 
 ##TEST
@@ -323,6 +371,14 @@ parser.add_argument('--directory', type=str, help='路径', required=True)
 parser.add_argument('--sign_picture', type=str, help='签名图片地址', required=True)
 parser.add_argument('--sign', type=str, help='签名字符串，如某某某', required=True)
 parser.add_argument('--sign_date', type=str, help='签名时间', required=True)
+parser.add_argument('--roster_file', type=str, help='名单文件名，默认：桂林学院上课点名册.xls',
+                    default='桂林学院上课点名册.xls')
+parser.add_argument('--system_prompt_file', type=str,
+                    help='System提示词文件路径（可选，不提供则使用默认值）',
+                    default=None)
+parser.add_argument('--teacher_prompt_file', type=str,
+                    help='Teacher提示词文件路径（必填）',
+                    required=True)
 
 #获取参数
 args = parser.parse_args()
@@ -332,17 +388,10 @@ directory = args.directory
 sign_picture = args.sign_picture
 sign = args.sign
 sign_date = args.sign_date
+roster_file = args.roster_file
+system_prompt_file = args.system_prompt_file
+teacher_prompt_file = args.teacher_prompt_file
 
-#teacher = "实验报告针对A*算法应用在8数码问题上的图遍历过程，目的应包含A*算法如何解决该问题；实验原理应包括A*算法的思想；结果分析应对A*算法进行总结。若实验目的、原理、结果分析均完善，应得100分；某一项有内容但不完整，应的90分；缺少某一项应得80分；缺少两项及以上应得70分。"
-teacher = '''
-实验报告基于Java，实验报告整体内容应包含通过实验实现英汉互译系统的开发，包括原理、实现和分析；
-实验原理应包括使用Java基于HashMap实现英汉互译系统的开发；
-结果分析应对代码进行总结和分析。
-若实验目的、原理、结果分析均完善，应得100分；某一大项有内容但内容不完整，应得90分；
-缺少实验目的、原理、结果的某一大项应得80分；缺少实验目的、原理、结果中的两项应得70分；
-缺少实验目的、原理、结果应得50分。
-在不影响判断要求的情况下尽可能匹配高分。
-'''
 # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
 # 初始化Ark客户端，从环境变量中读取您的API Key
 client = Ark(
@@ -352,11 +401,15 @@ client = Ark(
     api_key=os.environ.get("ARK_API_KEY"),
 )
 
-df = pd.read_excel(os.path.join(directory, '名单.xlsx'), names=['student_id','student_name', "1", "2"])
-file_list = os.listdir(old_dir)
+# 加载提示词
+system_prompt = load_prompt(system_prompt_file, DEFAULT_SYSTEM_PROMPT)
+teacher_prompt = load_prompt(teacher_prompt_file)
+print(f"System 提示词已{'从文件加载' if system_prompt_file else '使用默认值'}")
+print(f"Teacher 提示词已从文件加载: {teacher_prompt_file}")
 
-df = df.apply(lambda x: x.str.replace('\t', ''))
-df = df[df['student_id'].str.match(r'^\d+$')]
+# 读取桂林学院格式学生名单
+df = load_roster(directory, roster_file)
+file_list = os.listdir(old_dir)
 
 file_count = 0
 score_list = []
@@ -375,12 +428,12 @@ for index, row in df.iterrows():
 
     for file in file_list:
         if student_id in file:
-            score = copy_student_file(file, old_dir, use_student_path)
+            score = copy_student_file(file, old_dir, use_student_path, system_prompt, teacher_prompt)
             print(f"复制{student_id}")
             file_count = file_count + 1
             break
         elif student_name in file:
-            score = copy_student_file(file, old_dir, use_student_path)
+            score = copy_student_file(file, old_dir, use_student_path, system_prompt, teacher_prompt)
             print(f"复制{student_id}")
             file_count = file_count + 1
             break
