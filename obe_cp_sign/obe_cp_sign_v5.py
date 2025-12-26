@@ -1,5 +1,8 @@
 import os
 import subprocess
+import time
+from datetime import datetime, timedelta, timezone
+import requests
 
 import pandas as pd
 import shutil
@@ -12,6 +15,10 @@ from docx import Document
 from docx.shared import Cm
 from pathlib import Path
 from docx.text.paragraph import Paragraph
+from typing import Optional
+
+# v5版本新增常量
+FILE_EXPIRE_DAYS = 5  # 文件过期时间（天）
 
 # 默认的 System 提示词
 DEFAULT_SYSTEM_PROMPT = """你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的"教师要求"部分对"学生作答"部分进行批阅。你可以选择的分数为60,70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"""
@@ -93,6 +100,375 @@ def doc_to_docx(file_path):
     except Exception as e:
         print(f"文件转换失败: {e}")
         return None
+
+
+# ============ v5版本新增函数 ============
+
+def docx_to_pdf(docx_path: str) -> Optional[str]:
+    """
+    将DOCX文件转换为PDF
+
+    参数:
+        docx_path: DOCX文件路径
+
+    返回:
+        PDF文件路径,失败返回None
+    """
+    try:
+        docx_path = Path(docx_path).resolve()
+        pdf_path = docx_path.with_suffix(".pdf")
+
+        # 如果PDF已存在且较新,直接返回
+        if pdf_path.exists():
+            pdf_mtime = pdf_path.stat().st_mtime
+            docx_mtime = docx_path.stat().st_mtime
+            if pdf_mtime > docx_mtime:
+                print(f"使用已存在的PDF: {pdf_path}")
+                return str(pdf_path)
+
+        print(f"正在转换DOCX到PDF: {docx_path}")
+
+        # 使用LibreOffice转换
+        command = [
+            'libreoffice',
+            '--headless',
+            '--convert-to', 'pdf',
+            '--outdir', str(docx_path.parent),
+            str(docx_path)
+        ]
+
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+
+        if pdf_path.exists():
+            print(f"成功转换PDF: {pdf_path}")
+            return str(pdf_path)
+        else:
+            raise Exception("PDF文件未生成")
+
+    except subprocess.CalledProcessError as e:
+        print(f"LibreOffice PDF转换失败: {e.stderr}")
+        return None
+    except Exception as e:
+        print(f"PDF转换异常: {e}")
+        return None
+
+
+def upload_file_via_http(file_path: str, api_key: str, base_url: str = "https://ark.cn-beijing.volces.com/api/v3") -> Optional[str]:
+    """
+    使用HTTP请求上传文件到豆包Files API
+
+    参数:
+        file_path: 文件路径
+        api_key: API密钥
+        base_url: API基础URL
+
+    返回:
+        file_id,失败返回None
+    """
+    try:
+        url = f"{base_url}/files"
+        headers = {
+            "Authorization": f"Bearer {api_key}"
+        }
+
+        # 计算过期时间（使用秒级时间戳，范围：当前时间+86400 到 当前时间+2592000）
+        current_timestamp = int(time.time())  # 当前秒级时间戳
+        min_expire_at = current_timestamp + 86400  # 最少1天
+        max_expire_at = current_timestamp + 2592000  # 最多30天
+
+        # 使用FILE_EXPIRE_DAYS，但限制在有效范围内
+        expire_at = current_timestamp + (FILE_EXPIRE_DAYS * 86400)
+        if expire_at < min_expire_at:
+            expire_at = min_expire_at
+        elif expire_at > max_expire_at:
+            expire_at = max_expire_at
+
+        expire_datetime = datetime.fromtimestamp(expire_at)
+        print(f"当前时间戳(秒): {current_timestamp}")
+        print(f"文件过期时间: {expire_datetime} (expire_at={expire_at})")
+
+        # 准备multipart/form-data
+        files = {
+            'file': open(file_path, 'rb')
+        }
+        data = {
+            'purpose': 'user_data',
+            'expire_at': expire_at  # 直接传递整数，不转字符串
+        }
+
+        print(f"正在上传文件: {file_path}")
+        response = requests.post(url, headers=headers, files=files, data=data)
+
+        if response.status_code == 200:
+            result = response.json()
+            file_id = result.get('id')
+            print(f"文件已上传, file_id={file_id}, status={result.get('status')}")
+            return file_id
+        else:
+            print(f"上传失败, status_code={response.status_code}, response={response.text}")
+            return None
+
+    except Exception as e:
+        print(f"HTTP上传失败: {e}")
+        return None
+
+
+def wait_for_file_processing_via_http(file_id: str, api_key: str, base_url: str = "https://ark.cn-beijing.volces.com/api/v3") -> bool:
+    """
+    使用HTTP请求等待文件处理完成
+
+    参数:
+        file_id: 文件ID
+        api_key: API密钥
+        base_url: API基础URL
+
+    返回:
+        True表示处理成功, False表示失败
+    """
+    try:
+        url = f"{base_url}/files/{file_id}"
+        headers = {
+            "Authorization": f"Bearer {api_key}"
+        }
+
+        print("等待文件处理完成...")
+        max_wait = 120  # 最多等待120秒
+        waited = 0
+        check_interval = 2
+
+        while waited < max_wait:
+            response = requests.get(url, headers=headers)
+
+            if response.status_code == 200:
+                result = response.json()
+                status = result.get('status')
+
+                if status == 'active':
+                    print(f"文件处理完成: {file_id}")
+                    return True
+                elif status == 'failed':
+                    print(f"文件处理失败: {file_id}")
+                    return False
+                else:
+                    print(f"等待文件处理... ({waited}/{max_wait}s), status={status}")
+
+            time.sleep(check_interval)
+            waited += check_interval
+
+        print(f"文件处理超时: {file_id}")
+        return False
+
+    except Exception as e:
+        print(f"等待文件处理失败: {e}")
+        return False
+
+
+def upload_pdf_to_ark(pdf_path: str, api_key: str) -> Optional[str]:
+    """
+    上传PDF文件到豆包Files API，设置文件过期时间（默认1天）
+
+    参数:
+        pdf_path: PDF文件路径
+        api_key: API密钥
+
+    返回:
+        file_id,失败返回None
+    """
+    try:
+        # 1. 上传文件
+        file_id = upload_file_via_http(pdf_path, api_key)
+        if not file_id:
+            return None
+
+        # 2. 等待文件处理完成
+        if wait_for_file_processing_via_http(file_id, api_key):
+            return file_id
+        else:
+            return None
+
+    except Exception as e:
+        print(f"上传PDF失败: {e}")
+        return None
+
+
+def score_and_sign_fallback(docx_path: str, system_prompt: str, teacher_prompt: str) -> int:
+    """
+    回退方案:使用纯文本模式批阅(v4版本逻辑)
+
+    当PDF转换或上传失败时,使用此函数
+
+    参数:
+        docx_path: DOCX文件路径
+        system_prompt: 系统提示词
+        teacher_prompt: 教师要求
+
+    返回:
+        分数(0表示失败)
+    """
+    try:
+        print("使用回退方案(纯文本模式)")
+        document = Document(docx_path)
+        document_text = extract_table_text(document)
+
+        completion = client.chat.completions.create(
+            model="doubao-seed-1-6-flash-250828",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"教师要求:{teacher_prompt};学生作答:{document_text}"},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        print(completion.choices[0].message.content)
+        result = json.loads(completion.choices[0].message.content)
+        sign_by_picture(docx_path, docx_path, result["score"], result["comment"])
+        return result["score"]
+
+    except Exception as e:
+        print(f"回退方案也失败: {e}")
+        return 0
+
+
+def score_and_sign_with_file(docx_path: str, system_prompt: str, teacher_prompt: str, ark_client) -> int:
+    """
+    使用Files API进行多模态批阅并签名（使用SDK同步调用）
+
+    参数:
+        docx_path: DOCX文件路径
+        system_prompt: 系统提示词
+        teacher_prompt: 教师要求
+        ark_client: Ark客户端实例
+
+    返回:
+        分数(0表示失败)
+    """
+    pdf_path = None
+    file_id = None
+
+    try:
+        # 1. 转换DOCX为PDF
+        pdf_path = docx_to_pdf(docx_path)
+        if not pdf_path:
+            print("PDF转换失败,回退到文本模式")
+            return score_and_sign_fallback(docx_path, system_prompt, teacher_prompt)
+
+        # 2. 上传PDF到Files API
+        file_id = upload_pdf_to_ark(pdf_path, ark_client.api_key)
+        if not file_id:
+            print("PDF上传失败,回退到文本模式")
+            return score_and_sign_fallback(docx_path, system_prompt, teacher_prompt)
+
+        # 3. 调用批阅API（使用HTTP请求调用Responses API）
+        # 说明：
+        # - 使用 Responses API 进行多模态批阅（而非 Chat API）
+        # - 通过 caching={"type": "disabled"} 显式禁用缓存，关闭深度思考相关功能
+        # - 使用 input_file 类型引用上传的 PDF 文件
+        print("使用多模态API批阅")
+
+        # 使用HTTP请求调用Responses API
+        responses_url = "https://ark.cn-beijing.volces.com/api/v3/responses"
+        headers = {
+            "Authorization": f"Bearer {ark_client.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        request_body = {
+            "model": "doubao-seed-1-6-flash-250828",
+            "input": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file",
+                            "file_id": file_id
+                        },
+                        {
+                            "type": "input_text",
+                            "text": f"教师要求:{teacher_prompt}\n请对这份实验报告进行批阅，生成json格式，包含score和comment字段。"
+                        }
+                    ]
+                }
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "output",
+                    "strict": True,
+                    "schema": {
+                        "properties": {
+                            "score": {
+                                "description": "学生的成绩",
+                                "type": "integer",
+                            },
+                            "comment": {
+                                "description": "对学生实验报告的评价",
+                                "type": "string"
+                            }
+                        }
+                    },
+                },
+            },
+            'thinking': {
+                'type': 'disabled'
+            }
+        }
+
+        print(f"正在调用Responses API: {responses_url}")
+        response = requests.post(responses_url, headers=headers, json=request_body)
+
+        if response.status_code != 200:
+            raise Exception(f"Responses API调用失败: status_code={response.status_code}, response={response.text}")
+
+        response_data = response.json()
+
+        # 提取响应内容（根据Responses API的响应格式）
+        # 响应结构: output -> [message] -> content -> [output_text] -> text
+        output_content = ""
+        if "output" in response_data:
+            for item in response_data["output"]:
+                if item.get("type") == "message":
+                    for content_item in item.get("content", []):
+                        if content_item.get("type") == "output_text":
+                            output_content += content_item.get("text", "")
+
+        if not output_content:
+            raise Exception(f"无法从响应中提取内容: {response_data}")
+
+        print(f"API返回原始内容: {output_content}")
+        result = json.loads(output_content)
+
+        # 4. 签名并保存
+        sign_by_picture(docx_path, docx_path, result["score"], result["comment"])
+
+        return result["score"]
+
+    except Exception as e:
+        print(f"多模态批阅失败: {e}, 回退到文本模式")
+        import traceback
+        traceback.print_exc()
+        return score_and_sign_fallback(docx_path, system_prompt, teacher_prompt)
+
+    finally:
+        # 清理临时PDF文件
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+                print(f"已清理临时PDF: {pdf_path}")
+            except Exception as e:
+                print(f"清理PDF失败: {e}")
+
+
+# ============ v5版本新增函数结束 ============
 
 
 def extract_non_table_text(doc):
@@ -238,6 +614,7 @@ def is_archive(file_path):
 
     return file_path.lower().endswith(archive_extensions)
 
+# v4版本保留用于兼容
 def score_and_sign(destination_path_file, system_prompt, teacher_prompt):
     if not destination_path_file.endswith("docx"):
         print(f"不是docx文件无法签名. file_path={destination_path_file}")
@@ -272,7 +649,7 @@ def score_and_sign(destination_path_file, system_prompt, teacher_prompt):
 
     return 0
 
-def copy_student_file(file, old_path, destination_path, system_prompt, teacher_prompt):
+def copy_student_file(file, old_path, destination_path, system_prompt, teacher_prompt, ark_client):
 
     old_full_path = os.path.join(old_path, file)
     if is_archive(old_full_path):
@@ -288,7 +665,7 @@ def copy_student_file(file, old_path, destination_path, system_prompt, teacher_p
                 # 递归复制解压后的所有文件
                 temp_score = 0
                 for item in os.listdir(temp_dir):
-                    temp_score = max(temp_score, copy_student_file(item, temp_dir, destination_path, system_prompt, teacher_prompt))
+                    temp_score = max(temp_score, copy_student_file(item, temp_dir, destination_path, system_prompt, teacher_prompt, ark_client))
                 return temp_score
 
             finally:
@@ -317,7 +694,8 @@ def copy_student_file(file, old_path, destination_path, system_prompt, teacher_p
                 if destination_path_file.endswith(".doc"):
                     destination_path_file = doc_to_docx(destination_path_file)
 
-                return score_and_sign(destination_path_file, system_prompt, teacher_prompt)
+                # v5版本: 使用新的多模态批阅函数
+                return score_and_sign_with_file(destination_path_file, system_prompt, teacher_prompt, ark_client)
             except Exception as e:
                 print(f"签名失败. file_path={destination_path_file}, error={e}")
                 return 0
@@ -327,7 +705,7 @@ def copy_student_file(file, old_path, destination_path, system_prompt, teacher_p
             print("file_list=", file_list)
             max_score = 0
             for file in file_list:
-                max_score = max(max_score, copy_student_file(file, new_old_path, destination_path))
+                max_score = max(max_score, copy_student_file(file, new_old_path, destination_path, system_prompt, teacher_prompt, ark_client))
             return max_score
 
 
@@ -393,12 +771,15 @@ system_prompt_file = args.system_prompt_file
 teacher_prompt_file = args.teacher_prompt_file
 
 # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
-# 初始化Ark客户端，从环境变量中读取您的API Key
+# 从环境变量中获取API Key
+api_key = os.environ.get("ARK_API_KEY")
+
+# 初始化Ark客户端
 client = Ark(
     # 此为默认路径，您可根据业务所在地域进行配置
     base_url="https://ark.cn-beijing.volces.com/api/v3",
     # 从环境变量中获取您的 API Key。此为默认方式，您可根据需要进行修改
-    api_key=os.environ.get("ARK_API_KEY"),
+    api_key=api_key,
 )
 
 # 加载提示词
@@ -428,12 +809,12 @@ for index, row in df.iterrows():
 
     for file in file_list:
         if student_id in file:
-            score = copy_student_file(file, old_dir, use_student_path, system_prompt, teacher_prompt)
+            score = copy_student_file(file, old_dir, use_student_path, system_prompt, teacher_prompt, client)
             print(f"复制{student_id}")
             file_count = file_count + 1
             break
         elif student_name in file:
-            score = copy_student_file(file, old_dir, use_student_path, system_prompt, teacher_prompt)
+            score = copy_student_file(file, old_dir, use_student_path, system_prompt, teacher_prompt, client)
             print(f"复制{student_id}")
             file_count = file_count + 1
             break
