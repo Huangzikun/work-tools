@@ -2,10 +2,13 @@ import json
 from docx import Document
 from volcenginesdkarkruntime import Ark
 import os
+
 need_AI = True
 
 AI_keys = ['课堂内容']
 
+temp_file_path = '/Users/huangzikun/Desktop/桂林学院/AI大数据在城乡规划中的应用（上）/temp_plan.txt'
+save_path = '/Users/huangzikun/Desktop/桂林学院/AI大数据在城乡规划中的应用（上）/'
 def AI_help(key, value):
     if not need_AI:
         return value
@@ -20,8 +23,12 @@ def AI_help(key, value):
             {"role": "system",
              "content": "你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。"},
             {"role": "user",
-             "content": f"改写以下内容以完善其内容并符合学术规范，明确教学知识，重难点，教学方法，教学内容，确定教学步骤，融合思政元素，300字以下，不需要对你的决策进行解释，只需要陈述结论。内容如下：\n{value}\n。"},
-        ]
+             "content": f"改写以下内容以完善其内容并符合学术规范，明确教学知识，重难点，教学方法，教学内容，确定教学步骤，融合思政元素，300字以下，应减少使用括号描述具体项目或举例的描述。"
+                        f"如果有多项列表、添加换行符以保证格式。"
+                        f"避免使用markdown的标签，如*、**、#等"
+                        f"不需要对你的决策进行解释，只需要陈述结论。内容如下：\n{value}\n。"},
+        ],
+        max_tokens=32000,
     )
 
     return completion.choices[0].message.content
@@ -31,10 +38,13 @@ def replace_doc_placeholders(doc_name, data, num):
     for key in data.keys():
         data[key] = AI_help(key, data[key])
 
-    data['授课学时'] = 2
+    data['授课学时'] = 5
     data['课堂导入时间分配'] = 5
-    data['课堂内容时间分配'] = 70
+    data['课堂内容时间分配'] = 190
     data['课堂小结时间分配'] = 5
+    data['课次'] = num
+
+    print(data['课次'])
     """
     替换Word文档中的占位符（格式：{{key}}）为对应的值，保留原有格式
     :param doc_name: Document对象
@@ -43,7 +53,6 @@ def replace_doc_placeholders(doc_name, data, num):
 
     count = len(data)
 
-    data['课次'] = num
 
     def replace_text_in_paragraph(paragraph, placeholder, replacement):
         """在段落中替换文本，保留格式"""
@@ -125,7 +134,7 @@ def replace_doc_placeholders(doc_name, data, num):
 if __name__ == "__main__":
 
     # 加载模板文档（请确保文件路径正确）
-    template_path = "/Users/huangzikun/PycharmProjects/work-tools/teaching_plan/数据结构实验教案-V1.docx"
+    template_path = "/Users/huangzikun/Desktop/桂林学院/AI大数据在城乡规划中的应用（上）/理论课教案-V1.docx"
     doc = Document(template_path)
 
     # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
@@ -138,16 +147,17 @@ if __name__ == "__main__":
     )
 
     # 新增：解析JSON字符串为Python对象
-    with open('/Users/huangzikun/PycharmProjects/work-tools/teaching_plan/temp_plan.txt', 'r') as file:
+    with open(temp_file_path, 'r') as file:
         lesson_plans = json.load(file, strict=False)
 
     count = 1
     for lesson_plan in lesson_plans:
         replace_doc_placeholders(doc, lesson_plan, count)
+        print(f"课次: {count}")
         count += 1
 
 
     # 保存新文档
-    doc.save(f"new_v1_{count}.docx")
-    print(f"new_v1_{count}.docx")
+    doc.save(f"{save_path}/new_v1_{count}.docx")
+    print(f"{save_path}/new_v1_{count}.docx")
     count += 1

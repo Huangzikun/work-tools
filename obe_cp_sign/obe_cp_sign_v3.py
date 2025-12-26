@@ -153,21 +153,25 @@ def sign_by_picture(file_path, save_path, score, review):
 
                 if str.strip(row.cells[i].text) == '教师评阅':
 
-                    row.cells[i + 1].text = (f"{review}"
-                                             f"成绩：{score}分"
-                                             f"{os.linesep}"
-                                             f"{os.linesep}"
-                                             f"{os.linesep}"
-                                             f"{os.linesep}"
-                                             f"{os.linesep}"
-                                             f"                       教师签名：")
+                    # 确保有足够的单元格
+                    if i + 1 < len(row.cells):
+                        row.cells[i + 1].text = (f"{review}"
+                                                 f"成绩：{score}分"
+                                                 f"{os.linesep}"
+                                                 f"{os.linesep}"
+                                                 f"{os.linesep}"
+                                                 f"{os.linesep}"
+                                                 f"{os.linesep}"
+                                                 f"                       教师签名：")
 
-                    # 获取这个 cell 中的段落（此时已经有默认段落）
-                    paragraph = row.cells[i + 1].paragraphs[-1]  # 使用最后一个段落，即刚设置 text 的那个段落
-                    paragraph.add_run().add_picture(sign_picture, width=Cm(2))
-                    paragraph.add_run(f"   {sign_date}")
-                    doc.save(save_path)
-                    return
+                        # 获取这个 cell 中的段落（此时已经有默认段落）
+                        paragraph = row.cells[i + 1].paragraphs[-1]  # 使用最后一个段落，即刚设置 text 的那个段落
+                        paragraph.add_run().add_picture(sign_picture, width=Cm(2))
+                        paragraph.add_run(f"   {sign_date}")
+                        doc.save(save_path)
+                        return
+                    else:
+                        print(f"表格列数不足，无法在'教师评阅'后添加内容")
 
     print(f"sign fail. file = {file_path}")
 
@@ -229,7 +233,7 @@ def score_and_sign(destination_path_file):
                 model="doubao-seed-1-6-250615",
                 messages=[
                     {"role": "system",
-                     "content": "你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的“教师要求”部分对“学生作答”部分进行批阅。你可以选择的分数为60,70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"},
+                     "content": "你是桂林学院信息工程学院的一名计算机专任教师，你拥有丰富的教学经验。你的任务是针对学生提交的实验报告进行批改。你应该理解、使用用户提交的"教师要求"部分对"学生作答"部分进行批阅。你可以选择的分数为60,70,80,90和100分，并给出一个50字以内的批阅评语。生成json格式的内容，包含一个score和一个comment字段。"},
                     {"role": "user", "content": f"教师要求:{teacher};学生作答:{document_text}"},
                 ],
                 response_format={
@@ -263,7 +267,7 @@ def copy_student_file(file, old_path, destination_path):
                 # 递归复制解压后的所有文件
                 temp_score = 0
                 for item in os.listdir(temp_dir):
-                    temp_score = max(score, copy_student_file(item, temp_dir, destination_path))
+                    temp_score = max(temp_score, copy_student_file(item, temp_dir, destination_path))
                 return temp_score
 
             finally:
@@ -390,6 +394,3 @@ for index, row in df.iterrows():
 
 print(f"复制成功{file_count}")
 pd.DataFrame(score_list).to_excel(os.path.join(directory, '实验报告3.xlsx'), index=False)
-
-
-

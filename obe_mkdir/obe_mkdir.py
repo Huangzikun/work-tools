@@ -42,7 +42,7 @@ for must_mkdir in must_mkdirs:
 needMkdirs = []
 splits = ['、', '/', ',', '，', ';', '；']
 for split in splits:
-    if need_mkdir_str.find(split):
+    if split in need_mkdir_str:
         needMkdirs = need_mkdir_str.split(split)
         break
 print(f"创建: {needMkdirs}")
