@@ -10,6 +10,7 @@ from docx import Document
 
 from common.docx_template import DocxTemplateReplacer, ReplacerConfig
 from .models import LessonPlan
+from .text_formatter import format_all_lesson_data
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +80,11 @@ class DocxBuilder:
                     # 最后一个课时，直接使用最终输出路径
                     next_doc = output_path
 
+                # 格式化教案数据（在编号步骤之间添加换行）
+                formatted_data = format_all_lesson_data(lesson.to_dict())
+
                 # 替换当前课时的内容
-                replacer.replace(lesson.to_dict(), str(next_doc))
+                replacer.replace(formatted_data, str(next_doc))
 
                 # 获取统计信息
                 stats = replacer.get_stats()
