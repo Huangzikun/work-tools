@@ -63,25 +63,39 @@ class DocxBuilder:
         config = ReplacerConfig(replace_all=False)
 
         try:
+            current_doc = str(temp_template)
+
             for i, lesson in enumerate(lessons):
                 logger.info(f"处理第{i+1}/{len(lessons)}个课时: {lesson}")
 
                 # 为每个课时创建替换器
-                replacer = DocxTemplateReplacer(str(temp_template), config)
+                replacer = DocxTemplateReplacer(current_doc, config)
+
+                # 输出文件（每次使用新文件名避免锁定）
+                if i < len(lessons) - 1:
+                    # 还有下一个课时，使用临时文件
+                    next_doc = self.output_dir / f"_temp_step_{i}.docx"
+                else:
+                    # 最后一个课时，直接使用最终输出路径
+                    next_doc = output_path
 
                 # 替换当前课时的内容
-                replacer.replace(lesson.to_dict(), str(temp_template))
+                replacer.replace(lesson.to_dict(), str(next_doc))
 
                 # 获取统计信息
                 stats = replacer.get_stats()
                 logger.debug(f"  替换统计: 找到{stats['placeholders_found']}个占位符，替换{stats['placeholders_replaced']}个")
 
-            # 清理文档：删除未使用的表格和空白节
-            self._cleanup_document(str(temp_template), len(lessons))
+                # 更新当前文档路径，删除旧的临时文件
+                if i > 0 and current_doc != str(temp_template):
+                    try:
+                        Path(current_doc).unlink()
+                    except Exception:
+                        pass
+                current_doc = str(next_doc)
 
-            # 重命名为最终输出文件
-            if temp_template.exists():
-                shutil.move(str(temp_template), str(output_path))
+            # 清理文档：删除未使用的表格和空白节
+            self._cleanup_document(str(output_path), len(lessons))
 
             logger.info(f"教案文档生成完成: {output_path}")
             return str(output_path)
@@ -91,6 +105,11 @@ class DocxBuilder:
             # 清理临时文件
             if temp_template.exists():
                 temp_template.unlink()
+            # 清理步骤临时文件
+            for i in range(len(lessons)):
+                temp_file = self.output_dir / f"_temp_step_{i}.docx"
+                if temp_file.exists():
+                    temp_file.unlink()
             raise
 
     def _cleanup_document(self, doc_path: str, used_lesson_count: int):
