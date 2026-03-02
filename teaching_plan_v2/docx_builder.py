@@ -7,6 +7,7 @@ import logging
 from typing import List
 from pathlib import Path
 from docx import Document
+from docx.enum.text import WD_BREAK
 
 from common.docx_template import DocxTemplateReplacer, ReplacerConfig
 from .models import LessonPlan
@@ -101,6 +102,9 @@ class DocxBuilder:
             # 清理文档：删除未使用的表格和空白节
             self._cleanup_document(str(output_path), len(lessons))
 
+            # 在每个课时表格后添加分页符（最后一个课时除外）
+            self._add_page_breaks_between_lessons(str(output_path), len(lessons))
+
             logger.info(f"教案文档生成完成: {output_path}")
             return str(output_path)
 
@@ -166,3 +170,86 @@ class DocxBuilder:
 
         doc.save(doc_path)
         logger.info(f"文档清理完成: {len(doc.tables)}个表格, {len(doc.sections)}个节, {len(doc.paragraphs)}个段落")
+
+    def _add_page_break(self, doc_path: str):
+        """
+        在文档末尾添加分页符
+
+        Args:
+            doc_path: 文档路径
+        """
+        doc = Document(doc_path)
+
+        # 在文档末尾添加分页符
+        # 方法：添加一个新段落，在其中插入分页符
+        try:
+            # 添加一个新段落并插入分页符
+            doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+            doc.save(doc_path)
+            logger.debug(f"已添加分页符: {doc_path}")
+        except Exception as e:
+            logger.warning(f"添加分页符失败: {e}")
+
+    def _add_page_breaks_between_lessons(self, doc_path: str, lesson_count: int):
+        """
+        在每个课时表格后添加分页符（最后一个课时除外）
+
+        Args:
+            doc_path: 文档路径
+            lesson_count: 课时数量
+        """
+        doc = Document(doc_path)
+
+        # 表格结构：0-1是基本信息表格，2开始是课时表格
+        # 需要在表格 2, 3, ..., lesson_count+1 后添加分页符
+        # （最后一个课时不添加，所以是到 lesson_count+1-1 = lesson_count）
+        first_lesson_table = 2
+        last_lesson_table = 2 + lesson_count - 1  # 最后一个课时表格
+
+        try:
+            # 从后往前添加分页符，避免索引变化
+            for table_idx in range(last_lesson_table - 1, first_lesson_table - 1, -1):
+                if table_idx < len(doc.tables):
+                    table = doc.tables[table_idx]
+
+                    # 在表格后添加分页符段落
+                    # 方法：在表格的父元素中，在表格后插入一个包含分页符的段落
+                    try:
+                        # 获取表格的父元素
+                        table_element = table._element
+                        parent = table_element.getparent()
+
+                        # 获取表格在父元素中的索引
+                        table_index = parent.index(table_element)
+
+                        # 创建新段落元素，包含分页符
+                        from docx.oxml import OxmlElement
+                        from docx.oxml.ns import qn
+
+                        # 创建段落 (w:p)
+                        p = OxmlElement('w:p')
+
+                        # 创建段落属性 (w:pPr)
+                        pPr = OxmlElement('w:pPr')
+                        p.append(pPr)
+
+                        # 创建运行 (w:r)
+                        r = OxmlElement('w:r')
+                        p.append(r)
+
+                        # 创建分页符 (w:br with type="page")
+                        br = OxmlElement('w:br')
+                        br.set(qn('w:type'), 'page')
+                        r.append(br)
+
+                        # 在表格后插入段落
+                        parent.insert(table_index + 1, p)
+
+                        logger.debug(f"在表格{table_idx}后添加分页符")
+                    except Exception as e:
+                        logger.warning(f"在表格{table_idx}后添加分页符失败: {e}")
+
+            doc.save(doc_path)
+            logger.info(f"已为{lesson_count-1}个课时添加分页符")
+        except Exception as e:
+            logger.warning(f"批量添加分页符失败: {e}")
