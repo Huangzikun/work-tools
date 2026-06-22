@@ -13,7 +13,7 @@ class AppConfig:
 
     # AI配置
     api_key: str = ""
-    model: str = "doubao-seed-1-6-251015"  # 支持Responses API的模型
+    model: str = "doubao-seed-2-0-mini-260428"  # 支持Responses API的模型
     timeout: int = 1800  # 30分钟超时（秒）
     max_retries: int = 2  # 失败重试次数
 

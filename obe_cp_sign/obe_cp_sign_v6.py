@@ -13,7 +13,7 @@ import shutil
 import argparse
 import zipfile
 import hashlib
-from volcenginesdkarkruntime import Ark
+from common.llm_client import LLMClient
 import json
 from docx import Document
 from docx.shared import Cm
@@ -330,17 +330,14 @@ def score_and_sign_fallback(docx_path: str, system_prompt: str, teacher_prompt: 
         document = Document(docx_path)
         document_text = extract_table_text(document)
 
-        completion = client.chat.completions.create(
-            model="doubao-seed-1-6-flash-250828",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"教师要求:{teacher_prompt};学生作答:{document_text}"},
-            ],
-            response_format={"type": "json_object"},
+        output_text = client.generate(
+            system_prompt=system_prompt,
+            user_prompt=f"教师要求:{teacher_prompt};学生作答:{document_text}",
+            json_output=True,
         )
 
-        print(completion.choices[0].message.content)
-        result = json.loads(completion.choices[0].message.content)
+        print(output_text)
+        result = json.loads(output_text)
         sign_by_picture(docx_path, docx_path, result["score"], result["comment"])
         return result["score"]
 
@@ -385,78 +382,33 @@ def score_and_sign_with_file(docx_path: str, system_prompt: str, teacher_prompt:
         # - 使用 input_file 类型引用上传的 PDF 文件
         print("使用多模态API批阅")
 
-        # 使用HTTP请求调用Responses API
-        responses_url = "https://ark.cn-beijing.volces.com/api/v3/responses"
-        headers = {
-            "Authorization": f"Bearer {ark_client.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        request_body = {
-            "model": "doubao-seed-1-6-flash-250828",
-            "input": [
+        # 通过 LLMClient 调用 Responses API（多模态 + json_schema + thinking 禁用）
+        output_content = ark_client.generate(
+            system_prompt=system_prompt,
+            user_content=[
                 {
-                    "role": "system",
-                    "content": system_prompt
+                    "type": "input_file",
+                    "file_id": file_id
                 },
                 {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_file",
-                            "file_id": file_id
-                        },
-                        {
-                            "type": "input_text",
-                            "text": f"教师要求:{teacher_prompt}\n请对这份实验报告进行批阅，生成json格式，包含score和comment字段。"
-                        }
-                    ]
+                    "type": "input_text",
+                    "text": f"教师要求:{teacher_prompt}\n请对这份实验报告进行批阅，生成json格式，包含score和comment字段。"
                 }
             ],
-            "text": {
-                "format": {
-                    "type": "json_schema",
-                    "name": "output",
-                    "strict": True,
-                    "schema": {
-                        "properties": {
-                            "score": {
-                                "description": "学生的成绩",
-                                "type": "integer",
-                            },
-                            "comment": {
-                                "description": "对学生实验报告的评价",
-                                "type": "string"
-                            }
-                        }
+            json_schema={
+                "properties": {
+                    "score": {
+                        "description": "学生的成绩",
+                        "type": "integer",
                     },
-                },
+                    "comment": {
+                        "description": "对学生实验报告的评价",
+                        "type": "string"
+                    }
+                }
             },
-            'thinking': {
-                'type': 'disabled'
-            }
-        }
-
-        print(f"正在调用Responses API: {responses_url}")
-        response = requests.post(responses_url, headers=headers, json=request_body)
-
-        if response.status_code != 200:
-            raise Exception(f"Responses API调用失败: status_code={response.status_code}, response={response.text}")
-
-        response_data = response.json()
-
-        # 提取响应内容（根据Responses API的响应格式）
-        # 响应结构: output -> [message] -> content -> [output_text] -> text
-        output_content = ""
-        if "output" in response_data:
-            for item in response_data["output"]:
-                if item.get("type") == "message":
-                    for content_item in item.get("content", []):
-                        if content_item.get("type") == "output_text":
-                            output_content += content_item.get("text", "")
-
-        if not output_content:
-            raise Exception(f"无法从响应中提取内容: {response_data}")
+            thinking_disabled=True,
+        )
 
         print(f"API返回原始内容: {output_content}")
         result = json.loads(output_content)
@@ -1231,20 +1183,14 @@ def score_and_sign(destination_path_file, system_prompt, teacher_prompt):
             document = Document(destination_path_file)
             document_text = extract_table_text(document)
 
-            completion = client.chat.completions.create(
-                # 指定您创建的方舟推理接入点 ID，此处已帮您修改为您的推理接入点 ID
-                model="doubao-seed-1-6-flash-250828",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"教师要求:{teacher_prompt};学生作答:{document_text}"},
-                ],
-                response_format={
-                    "type": "json_object",
-                },
+            output_text = client.generate(
+                system_prompt=system_prompt,
+                user_prompt=f"教师要求:{teacher_prompt};学生作答:{document_text}",
+                json_output=True,
             )
 
-            print(completion.choices[0].message.content)
-            result = json.loads(completion.choices[0].message.content)
+            print(output_text)
+            result = json.loads(output_text)
             sign_by_picture(destination_path_file, destination_path_file, result["score"], result["comment"])
             return result["score"]
         except Exception as e:
@@ -1391,17 +1337,8 @@ def _main():
     review_color = args.review_color
     review_size_half_pt = args.review_size_pt * 2  # 磅转半磅
 
-    # 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
-    # 从环境变量中获取API Key
-    api_key = os.environ.get("ARK_API_KEY")
-
-    # 初始化Ark客户端
-    client = Ark(
-        # 此为默认路径，您可根据业务所在地域进行配置
-        base_url="https://ark.cn-beijing.volces.com/api/v3",
-        # 从环境变量中获取您的 API Key。此为默认方式，您可根据需要进行修改
-        api_key=api_key,
-    )
+    # 初始化统一 LLM 客户端
+    client = LLMClient()
 
     # 加载提示词
     system_prompt = load_prompt(system_prompt_file, DEFAULT_SYSTEM_PROMPT)

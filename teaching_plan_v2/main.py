@@ -74,8 +74,8 @@ def main():
     )
     parser.add_argument(
         '--model',
-        default='doubao-seed-1-6-251015',
-        help='AI模型名称（默认：doubao-seed-1-6-251015）'
+        default='doubao-seed-2-0-mini-260428',
+        help='AI模型名称（默认：doubao-seed-2-0-mini-260428）'
     )
     parser.add_argument(
         '--log_level',

@@ -1,21 +1,22 @@
 """
-豆包AI客户端 - 使用Chat Completions API
+豆包AI客户端 - 基于火山引擎 Ark Responses API (OpenAI SDK)
+
+对外保持 AIClient 接口兼容，内部委托给 common.llm_client.LLMClient。
 """
-import os
-import time
 import logging
-from volcenginesdkarkruntime import Ark
+
+from common.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    """豆包AI客户端"""
+    """豆包AI客户端（接口兼容层，内部委托 LLMClient）"""
 
     def __init__(
         self,
         api_key: str = None,
-        model: str = "doubao-seed-1-6-251015",
+        model: str = "doubao-seed-2-0-mini-260428",
         timeout: int = 1800,
         max_retries: int = 2
     ):
@@ -24,22 +25,17 @@ class AIClient:
 
         Args:
             api_key: API密钥，如果为None则从环境变量ARK_API_KEY读取
-            model: 模型名称
+            model: 模型名称（默认统一为新的 doubao-seed-2-0-mini-260428）
             timeout: 超时时间（秒）
             max_retries: 最大重试次数
         """
-        if api_key is None:
-            api_key = os.environ.get("ARK_API_KEY")
-            if not api_key:
-                raise ValueError("API Key未提供，请设置ARK_API_KEY环境变量或传入api_key参数")
-
-        self.model = model
-        self.client = Ark(
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
+        self._llm = LLMClient(
             api_key=api_key,
+            model=model,
             timeout=timeout,
-            max_retries=max_retries
+            max_retries=max_retries,
         )
+        self.model = model
         logger.info(f"AI客户端初始化完成，模型: {model}")
 
     def generate_response(
@@ -49,7 +45,7 @@ class AIClient:
         response_format: str = "json"
     ) -> str:
         """
-        使用Chat Completions API调用豆包模型
+        调用豆包模型生成响应
 
         Args:
             system_prompt: 系统提示词
@@ -58,34 +54,16 @@ class AIClient:
 
         Returns:
             模型返回的文本内容
-
-        Raises:
-            Exception: API调用失败时抛出异常
         """
-        # 构建messages参数
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-
-        logger.debug(f"调用AI模型，消息数量: {len(messages)}")
-
+        json_output = response_format == "json"
         try:
-            # 调用Chat Completions API
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages
+            result = self._llm.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_output=json_output,
             )
-
-            # 提取输出内容
-            if response.choices and len(response.choices) > 0:
-                result = response.choices[0].message.content
-                logger.info(f"AI调用成功，输出长度: {len(result)} 字符")
-                return result
-
-            logger.warning("AI响应为空")
-            return ""
-
+            logger.info(f"AI调用成功，输出长度: {len(result)} 字符")
+            return result
         except Exception as e:
             logger.error(f"AI调用失败: {e}")
             raise
@@ -109,16 +87,10 @@ class AIClient:
         Returns:
             模型返回的文本内容
         """
-        for attempt in range(max_retries):
-            try:
-                return self.generate_response(system_prompt, user_prompt, response_format)
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    logger.error(f"AI调用失败，已重试{max_retries}次，放弃重试")
-                    raise
-                wait_time = 2 ** attempt  # 指数退避
-                logger.warning(f"AI调用失败，{wait_time}秒后重试 (第{attempt + 1}/{max_retries}次)")
-                time.sleep(wait_time)
-
-        # 理论上不会执行到这里
-        raise Exception("AI调用失败")
+        json_output = response_format == "json"
+        return self._llm.generate_with_retry(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_output=json_output,
+            max_retries=max_retries,
+        )

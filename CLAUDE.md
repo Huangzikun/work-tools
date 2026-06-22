@@ -66,7 +66,10 @@ This is an educational management system for handling student assignments, gradi
 #### Install Dependencies
 ```bash
 # Flask app dependencies
-pip install flask flask-sqlalchemy flask-cors pandas python-docx volcenginesdkarkruntime
+pip install flask flask-sqlalchemy flask-cors pandas python-docx openai
+
+# Common shared dependencies (统一 LLM 客户端)
+pip install -r common/requirements.txt
 
 # Individual tool dependencies
 pip install -r obe_mkdir/requirements.txt
@@ -154,7 +157,7 @@ python check_and_sign/test.py
 - **Flask**: Web framework
 - **Pandas**: Excel file processing
 - **python-docx**: Word document manipulation
-- **volcenginesdkarkruntime**: AI API integration
+- **openai**: OpenAI SDK（用于调用火山引擎 Ark Responses API）
 - **SQLAlchemy**: Database ORM
 
 ### External Tools
@@ -171,9 +174,11 @@ python check_and_sign/test.py
 - `POST|GET /template/info/output` - Export template as document
 
 ### AI Integration
-- Uses VolcEngine Ark API with model `doubao-seed-1-6-250615`
+- 通过 `common/llm_client.py` 统一封装 `LLMClient`，基于 OpenAI SDK 的 Responses API 调用火山引擎 Ark
+- 默认模型：`doubao-seed-2-0-mini-260428`
+- Base URL：`https://ark.cn-beijing.volces.com/api/v3`
 - Requires `ARK_API_KEY` environment variable
-- Supports JSON response format for structured grading
+- Supports JSON output (`json_object`)、JSON Schema 严格模式、多模态输入（`input_text` / `input_image` / `input_file`）
 
 ### Document Processing
 - Handles both .doc and .docx formats
