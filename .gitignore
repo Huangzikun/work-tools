@@ -59,3 +59,18 @@ app.log
 # API Keys (backup)
 *_keys.txt
 *_secrets.txt
+
+# 前端 (web/)
+web/node_modules/
+web/dist/
+web/.env.local
+web/.vite/
+web/coverage/
+web/stats.html
+
+# 后端 (backend/)
+backend/__pycache__/
+backend/**/*.pyc
+backend/instance/
+backend/logs/
+backend/*.log

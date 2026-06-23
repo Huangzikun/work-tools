@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 This is an educational management system for handling student assignments, grading, and documentation. The system includes:
-- Flask-based web application for template management
+- Vue3 + Flask 全栈 Web 应用（`web/` + `backend/`，脚手架阶段，仅含登录鉴权）
 - Command-line tools for OBE (Outcome-Based Education) workflows
 - AI-assisted grading using VolcEngine Ark API
 - Document processing for Word files (.doc/.docx)
@@ -14,15 +14,30 @@ This is an educational management system for handling student assignments, gradi
 
 ### Core Components
 
-#### 1. Flask Web Application (`flask_app/`)  
-- **Entry Point**: `app.py` - Simple Flask app runner
-- **Main App**: `flask_app/__init__.py` - Initializes Flask with SQLAlchemy, CORS, and logging
-- **Models**: `flask_app/models/` - TemplateConfig and TemplateInfo for managing document templates
-- **Routes**: 
-  - `flask_app/routes/routes.py` - Template management API endpoints
-  - `flask_app/obe/routes.py` - OBE-related endpoints (if implemented)
-- **Services**: `flask_app/services/TemplateService.py` - Business logic for template operations
-- **Utils**: `flask_app/utils/WordReplacer.py` - Word document processing utilities
+#### 1. Web Application（`web/` + `backend/`）
+
+##### Frontend (`web/`) - 基于 soybean-admin
+- **技术栈**：Vue 3 + Vite + Naive UI + Pinia + TypeScript + UnoCSS
+- **包管理器**：pnpm >= 10.5.0，Node >= 20.19.0
+- **开发端口**：http://localhost:9527
+- **来源**：克隆自 https://github.com/soybeanJS/soybean-admin.git（克隆后已删除其 `.git`）
+- **路由系统**：基于 elegant-router 的文件路由
+- **后端代理**：通过 `.env.dev` 中的 `VITE_SERVICE_BASE_URL` 指向 Flask
+
+##### Backend (`backend/`) - Flask 工厂模式
+- **入口**：`app.py` → `create_app()` 工厂函数
+- **配置**：`config.py`（DB URI、JWT 密钥、CORS 白名单、默认 admin）
+- **扩展**：`extensions.py`（`db = SQLAlchemy()`、`migrate`、`cors`）
+- **Models**：`models/user.py` - `User`（单表 `sys_user`，roles/buttons 用 JSON 字段）
+- **Routes**：
+  - `routes/auth.py` - `/api/auth/login`、`/api/auth/getUserInfo`、`/api/auth/refreshToken`
+  - `routes/route.py` - `/api/route/getUserRoutes`、`/api/route/getConstantRoutes`、`/api/route/isRouteExist`
+- **Services**：`services/auth_service.py`、`services/route_service.py`
+- **Utils**：JWT 工具、Werkzeug 密码哈希、统一响应封装
+- **Seed**：`seed/menus.py` - 固定菜单（home、user-center）
+- **端口**：http://localhost:5001（macOS 5000 被 AirPlay Receiver 占用）
+- **环境**：conda env `teacherrecruitment`
+- **数据库**：MariaDB `teacher_recruitment`（localhost:3306, root/root123）
 
 #### 2. Command-Line Tools
 
@@ -63,15 +78,23 @@ This is an educational management system for handling student assignments, gradi
 
 ### Setup & Installation
 
-#### Install Dependencies
+#### Web App - Backend (`backend/`)
 ```bash
-# Flask app dependencies
-pip install flask flask-sqlalchemy flask-cors pandas python-docx openai
+conda activate teacherrecruitment
+pip install -r backend/requirements.txt
+python backend/init_db.py   # 建库 + 建表 + 写入默认 admin 用户
+```
 
-# Common shared dependencies (统一 LLM 客户端)
+#### Web App - Frontend (`web/`)
+```bash
+cd web
+pnpm install
+pnpm dev   # http://localhost:9527
+```
+
+#### Command-Line Tools（共用 LLM 客户端）
+```bash
 pip install -r common/requirements.txt
-
-# Individual tool dependencies
 pip install -r obe_mkdir/requirements.txt
 pip install -r obe_cp/requirements.txt
 pip install -r sign/requirements.txt
@@ -85,12 +108,11 @@ export ARK_API_KEY=your_volcengine_ark_api_key
 
 ### Running Applications
 
-#### Flask Web Application
-```bash
-# Development server
-python app.py
-# Runs on http://localhost:5000 with debug mode enabled
-```
+#### Web App 启动顺序
+1. **MariaDB**：`mysql.server start`（或确认 localhost:3306 可连）
+2. **Backend**：`conda activate teacherrecruitment && python backend/app.py`（监听 5001）
+3. **Frontend**：`cd web && pnpm dev`（监听 9527）
+4. **浏览器**：访问 http://localhost:9527，用 `admin / 123456` 登录
 
 #### Command-Line Tools
 
@@ -133,7 +155,6 @@ python teaching_plan/edit_doc.py
 
 #### Run Tests
 ```bash
-# Test individual components
 python test.py
 python teaching_plan/test.py
 python check_and_sign/test.py
@@ -153,25 +174,43 @@ python check_and_sign/test.py
 
 ## Key Dependencies
 
-### Core Libraries
+### Backend (`backend/`)
 - **Flask**: Web framework
+- **Flask-SQLAlchemy**: ORM
+- **Flask-Cors**: CORS
+- **Flask-Migrate**: DB migration
+- **PyMySQL**: MySQL driver
+- **PyJWT**: JWT 鉴权
+- **Werkzeug**: 密码哈希
+
+### Frontend (`web/`)
+- **Vue 3 + Vite + Naive UI + Pinia + TypeScript + UnoCSS**
+- 详细依赖见 `web/package.json`
+
+### Command-Line Tools
 - **Pandas**: Excel file processing
 - **python-docx**: Word document manipulation
 - **openai**: OpenAI SDK（用于调用火山引擎 Ark Responses API）
-- **SQLAlchemy**: Database ORM
 
 ### External Tools
 - **LibreOffice**: Required for .doc to .docx conversion via CLI
 - **VolcEngine Ark API**: AI grading and content generation
+- **MariaDB 12.2.2**: 本机数据库
 
 ## Development Notes
 
-### API Endpoints (Flask)
-- `GET|POST /template/config/list` - List template configurations
-- `GET|POST /template/info/list` - List template information
-- `POST /template/info/get` - Get specific template info
-- `POST /template/info/save` - Save template information
-- `POST|GET /template/info/output` - Export template as document
+### 数据库约束（重要）
+- **不要使用关联查询，尽可能将 SQL 拆分成多条**。如果业务场景一定需要使用关联查询，必须得到我的同意。
+- 当前 `User` 模型把 `roles` / `buttons` 用 JSON 字段放在单表，避免引入角色/权限关联表。
+
+### API Endpoints (Flask Backend)
+所有接口统一前缀 `/api`，响应统一为 `{ code, msg, data }`（与 soybean-admin 前端拦截器约定）。
+- `POST /api/auth/login` - 登录，入参 `{userName, password}`，出参 `{token, refreshToken}`
+- `GET /api/auth/getUserInfo` - 获取当前用户信息（需 Bearer Token）
+- `POST /api/auth/refreshToken` - 刷新 token
+- `GET /api/route/getUserRoutes` - 获取登录用户可见菜单（需 Bearer Token）
+- `GET /api/route/getConstantRoutes` - 获取常量路由
+- `GET /api/route/isRouteExist?routeName=` - 检查路由是否存在
 
 ### AI Integration
 - 通过 `common/llm_client.py` 统一封装 `LLMClient`，基于 OpenAI SDK 的 Responses API 调用火山引擎 Ark
