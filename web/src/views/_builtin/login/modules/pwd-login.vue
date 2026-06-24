@@ -20,7 +20,7 @@ interface FormModel {
 }
 
 const model: FormModel = reactive({
-  userName: 'Soybean',
+  userName: 'admin',
   password: '123456'
 });
 
@@ -39,7 +39,7 @@ async function handleSubmit() {
   await authStore.login(model.userName, model.password);
 }
 
-type AccountKey = 'super' | 'admin' | 'user';
+type AccountKey = 'admin';
 
 interface Account {
   key: AccountKey;
@@ -50,21 +50,9 @@ interface Account {
 
 const accounts = computed<Account[]>(() => [
   {
-    key: 'super',
-    label: $t('page.login.pwdLogin.superAdmin'),
-    userName: 'Super',
-    password: '123456'
-  },
-  {
     key: 'admin',
     label: $t('page.login.pwdLogin.admin'),
-    userName: 'Admin',
-    password: '123456'
-  },
-  {
-    key: 'user',
-    label: $t('page.login.pwdLogin.user'),
-    userName: 'User',
+    userName: 'admin',
     password: '123456'
   }
 ]);
