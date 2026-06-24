@@ -1,0 +1,21 @@
+[Unit]
+Description=Work-Tools Flask Backend (gunicorn)
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/1panel/www/sites/work-tools/index/backend
+EnvironmentFile=/opt/1panel/www/sites/work-tools/index/.env.prod
+ExecStart=/opt/1panel/www/sites/work-tools/index/venv/bin/gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:5001 \
+    --access-logfile /opt/1panel/www/sites/work-tools/index/logs/access.log \
+    --error-logfile /opt/1panel/www/sites/work-tools/index/logs/error.log \
+    "app:create_app()"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
