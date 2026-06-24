@@ -39,7 +39,14 @@ def ensure_database() -> None:
 def ensure_tables_and_seed() -> None:
     from app import create_app
     from extensions import db
-    from models.user import User
+    # 显式 import 所有 Model，确保 db.create_all() 能感知到全部表
+    from models import (  # noqa: F401
+        ObeGradingJob,
+        ObeGradingJobDetail,
+        ObeStudent,
+        ObeTask,
+        User,
+    )
     from utils.password import hash_password
 
     app = create_app()

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
 import type { UploadFileInfo } from 'naive-ui';
+import { useRouter } from 'vue-router';
 import { useFormRules, useNaiveForm } from '@/hooks/common/form';
 import { fetchObeMkdir } from '@/service/api/obe';
 import { $t } from '@/locales';
@@ -9,6 +10,7 @@ defineOptions({
   name: 'ObeMkdir'
 });
 
+const router = useRouter();
 const { formRef, validate, restoreValidation } = useNaiveForm();
 const { defaultRequiredRule } = useFormRules();
 
@@ -92,7 +94,7 @@ async function handleSubmit() {
   progressText.value = $t('page.obeMkdir.uploadProgress', { percent: 0 });
 
   try {
-    const { blob, filename } = await fetchObeMkdir(
+    const result = await fetchObeMkdir(
       {
         className: model.className.trim(),
         courseName: model.courseName.trim(),
@@ -105,31 +107,16 @@ async function handleSubmit() {
         onUploadProgress: e => {
           if (e.total) {
             const percent = Math.round((e.loaded / e.total) * 100);
-            progress.value = Math.min(percent, 50);
-            progressText.value = $t('page.obeMkdir.uploadProgress', { percent });
-          }
-        },
-        onDownloadProgress: e => {
-          if (e.total) {
-            const percent = Math.round(50 + (e.loaded / e.total) * 50);
             progress.value = Math.min(percent, 100);
-            progressText.value = $t('page.obeMkdir.downloadProgress', { percent: percent - 50 });
+            progressText.value = $t('page.obeMkdir.uploadProgress', { percent });
           }
         }
       }
     );
 
-    // 触发浏览器下载
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-
     window.$message?.success($t('page.obeMkdir.success'));
+    // 跳转到任务详情页（展示目录结构 + 提供批改入口）
+    router.push({ name: 'obe_task-detail', query: { taskId: String(result.taskId) } });
   } catch (err) {
     window.$message?.error(err instanceof Error ? err.message : '生成失败');
   } finally {

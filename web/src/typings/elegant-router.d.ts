@@ -25,6 +25,8 @@ declare module "@elegant-router/types" {
     "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?";
     "obe": "/obe";
     "obe_mkdir": "/obe/mkdir";
+    "obe_task-detail": "/obe/task-detail";
+    "obe_tasks": "/obe/tasks";
   };
 
   /**
@@ -86,6 +88,8 @@ declare module "@elegant-router/types" {
     | "login"
     | "home"
     | "obe_mkdir"
+    | "obe_task-detail"
+    | "obe_tasks"
   >;
 
   /**

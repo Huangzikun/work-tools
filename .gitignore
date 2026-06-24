@@ -82,3 +82,6 @@ backend/tests/e2e/node_modules/
 backend/tests/e2e/playwright-report/
 backend/tests/e2e/test-results/
 backend/tests/e2e/*.png
+
+# OBE 任务运行时数据（学生上传的实验报告、批改产物、签名图等，含隐私）
+backend/storage/

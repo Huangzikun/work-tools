@@ -92,6 +92,24 @@ export const generatedRoutes: GeneratedRoute[] = [
           title: 'obe_mkdir',
           i18nKey: 'route.obe_mkdir'
         }
+      },
+      {
+        name: 'obe_task-detail',
+        path: '/obe/task-detail',
+        component: 'view.obe_task-detail',
+        meta: {
+          title: 'obe_task-detail',
+          i18nKey: 'route.obe_task-detail'
+        }
+      },
+      {
+        name: 'obe_tasks',
+        path: '/obe/tasks',
+        component: 'view.obe_tasks',
+        meta: {
+          title: 'obe_tasks',
+          i18nKey: 'route.obe_tasks'
+        }
       }
     ]
   }

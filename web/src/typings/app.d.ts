@@ -576,7 +576,6 @@ declare namespace App {
           studentDirTypesRequired: string;
           bothDirTypesEmpty: string;
           uploadProgress: string;
-          downloadProgress: string;
           success: string;
           presetStudentDir: {
             courseAssessment: string;

@@ -45,6 +45,17 @@ USER_ROUTES = [
                     "order": 1,
                 },
             },
+            {
+                "name": "obe_tasks",
+                "path": "/obe/tasks",
+                "component": "layout.base$view.obe_tasks",
+                "meta": {
+                    "title": "任务列表",
+                    "i18nKey": "route.obe_tasks",
+                    "icon": "mdi:clipboard-list-outline",
+                    "order": 2,
+                },
+            },
         ],
     },
 ]

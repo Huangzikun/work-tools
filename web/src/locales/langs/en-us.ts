@@ -231,7 +231,9 @@ const local: App.I18n.Schema = {
     'iframe-page': 'Iframe',
     home: 'Home',
     obe: 'OBE Tools',
-    'obe_mkdir': 'Directory Generator'
+    'obe_mkdir': 'Directory Generator',
+    'obe_tasks': 'Tasks',
+    'obe_task-detail': 'Task Detail'
   },
   page: {
     login: {
@@ -324,14 +326,13 @@ const local: App.I18n.Schema = {
       rosterLabel: 'Roster File',
       rosterHint: 'Accepts Guilin College .xls (HTML format) or standard .xlsx',
       rosterDragHint: 'Click or drag a file here to upload',
-      submit: 'Generate & Download ZIP',
+      submit: 'Generate',
       reset: 'Reset',
       rosterRequired: 'Please upload a roster file',
       studentDirTypesRequired: 'At least one assessment directory is required',
       bothDirTypesEmpty: 'At least one fixed or assessment directory is required',
-      uploadProgress: 'Uploading...{percent}%',
-      downloadProgress: 'Generating...{percent}%',
-      success: 'Generated successfully',
+      uploadProgress: 'Uploading roster...{percent}%',
+      success: 'Directory created, entering task detail',
       presetStudentDir: {
         courseAssessment: 'Course Assessment',
         labReport: 'Lab Report',

@@ -1,7 +1,11 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 class Config:
@@ -44,3 +48,18 @@ class Config:
         "password": os.getenv("DB_PASSWORD", "root123"),
         "dbname": os.getenv("DB_NAME", "teacher_recruitment"),
     }
+
+    # OBE 任务存储根目录（持久化的目录树、上传文件、签名图、Excel 都在这下面）
+    OBE_STORAGE_ROOT = os.getenv(
+        "OBE_STORAGE_ROOT", str(BASE_DIR / "storage" / "obe")
+    )
+
+    # 单个 OBE 任务上传总大小上限（学生文件批量上传），默认 200MB
+    OBE_UPLOAD_MAX_BYTES = int(os.getenv("OBE_UPLOAD_MAX_BYTES", str(200 * 1024 * 1024)))
+
+    # 火山引擎 Ark（AI 批阅）
+    ARK_API_KEY = os.getenv("ARK_API_KEY", "")
+    ARK_BASE_URL = os.getenv(
+        "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+    )
+    ARK_MODEL = os.getenv("ARK_MODEL", "doubao-seed-2-0-mini-260428")

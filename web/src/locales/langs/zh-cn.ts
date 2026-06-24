@@ -227,7 +227,9 @@ const local: App.I18n.Schema = {
     'iframe-page': '外链页面',
     home: '首页',
     obe: 'OBE工具',
-    'obe_mkdir': '目录生成'
+    'obe_mkdir': '目录生成',
+    'obe_tasks': '任务列表',
+    'obe_task-detail': '任务详情'
   },
   page: {
     login: {
@@ -320,14 +322,13 @@ const local: App.I18n.Schema = {
       rosterLabel: '名单文件',
       rosterHint: '支持桂林学院上课点名册 .xls（HTML 格式）或标准 .xlsx',
       rosterDragHint: '点击或拖拽文件到此处上传',
-      submit: '生成并下载 ZIP',
+      submit: '生成目录',
       reset: '重置',
       rosterRequired: '请上传名单文件',
       studentDirTypesRequired: '至少选择或输入一项考核目录',
       bothDirTypesEmpty: '至少需要选择一项固定目录或考核目录',
-      uploadProgress: '上传中...{percent}%',
-      downloadProgress: '生成中...{percent}%',
-      success: '生成成功',
+      uploadProgress: '上传名单中...{percent}%',
+      success: '目录已生成，即将进入任务详情',
       presetStudentDir: {
         courseAssessment: '课程考核',
         labReport: '实验实训报告',

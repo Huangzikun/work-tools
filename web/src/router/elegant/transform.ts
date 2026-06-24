@@ -170,7 +170,9 @@ const routeMap: RouteMap = {
   "iframe-page": "/iframe-page/:url",
   "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?",
   "obe": "/obe",
-  "obe_mkdir": "/obe/mkdir"
+  "obe_mkdir": "/obe/mkdir",
+  "obe_task-detail": "/obe/task-detail",
+  "obe_tasks": "/obe/tasks"
 };
 
 /**
