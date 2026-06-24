@@ -555,6 +555,37 @@ declare namespace App {
           };
           creativity: string;
         };
+        obeMkdir: {
+          title: string;
+          subtitle: string;
+          classNameLabel: string;
+          classNamePlaceholder: string;
+          courseNameLabel: string;
+          courseNamePlaceholder: string;
+          teacherNameLabel: string;
+          teacherNamePlaceholder: string;
+          fixedDirTypesLabel: string;
+          studentDirTypesLabel: string;
+          studentDirTypesPlaceholder: string;
+          rosterLabel: string;
+          rosterHint: string;
+          rosterDragHint: string;
+          submit: string;
+          reset: string;
+          rosterRequired: string;
+          studentDirTypesRequired: string;
+          bothDirTypesEmpty: string;
+          uploadProgress: string;
+          downloadProgress: string;
+          success: string;
+          presetStudentDir: {
+            courseAssessment: string;
+            labReport: string;
+            finalExam: string;
+            dailyHomework: string;
+            courseDesign: string;
+          };
+        };
       };
       form: {
         required: string;

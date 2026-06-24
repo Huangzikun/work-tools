@@ -23,6 +23,8 @@ declare module "@elegant-router/types" {
     "home": "/home";
     "iframe-page": "/iframe-page/:url";
     "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?";
+    "obe": "/obe";
+    "obe_mkdir": "/obe/mkdir";
   };
 
   /**
@@ -60,6 +62,7 @@ declare module "@elegant-router/types" {
     | "home"
     | "iframe-page"
     | "login"
+    | "obe"
   >;
 
   /**
@@ -82,6 +85,7 @@ declare module "@elegant-router/types" {
     | "iframe-page"
     | "login"
     | "home"
+    | "obe_mkdir"
   >;
 
   /**

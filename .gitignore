@@ -74,3 +74,11 @@ backend/**/*.pyc
 backend/instance/
 backend/logs/
 backend/*.log
+
+# 测试产物
+.pytest_cache/
+backend/tests/e2e/.auth/
+backend/tests/e2e/node_modules/
+backend/tests/e2e/playwright-report/
+backend/tests/e2e/test-results/
+backend/tests/e2e/*.png

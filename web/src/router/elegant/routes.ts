@@ -74,5 +74,25 @@ export const generatedRoutes: GeneratedRoute[] = [
       constant: true,
       hideInMenu: true
     }
+  },
+  {
+    name: 'obe',
+    path: '/obe',
+    component: 'layout.base',
+    meta: {
+      title: 'obe',
+      i18nKey: 'route.obe'
+    },
+    children: [
+      {
+        name: 'obe_mkdir',
+        path: '/obe/mkdir',
+        component: 'view.obe_mkdir',
+        meta: {
+          title: 'obe_mkdir',
+          i18nKey: 'route.obe_mkdir'
+        }
+      }
+    ]
   }
 ];

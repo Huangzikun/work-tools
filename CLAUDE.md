@@ -32,9 +32,11 @@ This is an educational management system for handling student assignments, gradi
 - **Routes**：
   - `routes/auth.py` - `/api/auth/login`、`/api/auth/getUserInfo`、`/api/auth/refreshToken`
   - `routes/route.py` - `/api/route/getUserRoutes`、`/api/route/getConstantRoutes`、`/api/route/isRouteExist`
-- **Services**：`services/auth_service.py`、`services/route_service.py`
+  - `routes/obe.py` - `/api/obe/mkdir`（OBE 目录生成，multipart 上传名单 + ZIP 流式下载）
+- **Services**：`services/auth_service.py`、`services/route_service.py`、`services/obe_mkdir_service.py`
 - **Utils**：JWT 工具、Werkzeug 密码哈希、统一响应封装
-- **Seed**：`seed/menus.py` - 固定菜单（home、user-center）
+- **Seed**：`seed/menus.py` - 固定菜单（home、user-center、obe > obe_mkdir）
+- **Tests**：`tests/`（pytest 单元测试 + `tests/e2e/` Playwright 端到端测试）
 - **端口**：http://localhost:5001（macOS 5000 被 AirPlay Receiver 占用）
 - **环境**：conda env `teacherrecruitment`
 - **数据库**：MariaDB `teacher_recruitment`（localhost:3306, root/root123）
@@ -194,6 +196,10 @@ python check_and_sign/test.py
    location ~ /\\.env { deny all; return 403; }
    location ~ /_bak_frontend(/.*)?$ { deny all; return 403; }
    ```
+   同时追加 **上传大小限制**（OBE 目录生成的名单上传需要 ≥10MB，nginx 默认 `client_max_body_size 1m` 会拦截）：
+   ```nginx
+   client_max_body_size 12m;
+   ```
 4. **生产库已建并授权**（在 MySQL 容器内执行）：
    ```sql
    CREATE DATABASE teacher_recruitment CHARACTER SET utf8mb4;
@@ -311,6 +317,10 @@ curl -I http://129.204.203.17:9530/backend/app.py
 - `GET /api/route/getUserRoutes` - 获取登录用户可见菜单（需 Bearer Token）
 - `GET /api/route/getConstantRoutes` - 获取常量路由
 - `GET /api/route/isRouteExist?routeName=` - 检查路由是否存在
+- `POST /api/obe/mkdir` - OBE 目录生成（multipart/form-data，需 Bearer Token）
+  - 表单字段：`className / courseName / teacherName`（必填）、`fixedDirTypes`（JSON 数组，可空，如 `["教学课件","教学教案"]`，仅创建空目录）、`studentDirTypes`（JSON 数组，至少 1 项或 fixedDirTypes 非空，如 `["课程考核","实验实训报告"]`，每个类型创建 `{班级}《{课程}》{类型}{教师}{人数}份/` 目录并在其下为每个学生建 `{学号}{专业名}{姓名}/` 子目录）
+  - 文件字段：`roster`（桂林学院上课点名册 .xls，HTML 格式，列含 序号/行政班级/学号/姓名；或标准 .xlsx）
+  - 成功返回 `application/zip`（Content-Disposition 用 RFC 5987 编码中文文件名）；失败返回统一 JSON `{code, msg, data}`
 
 ### AI Integration
 - 通过 `common/llm_client.py` 统一封装 `LLMClient`，基于 OpenAI SDK 的 Responses API 调用火山引擎 Ark

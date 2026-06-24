@@ -225,7 +225,9 @@ const local: App.I18n.Schema = {
     404: '页面不存在',
     500: '服务器错误',
     'iframe-page': '外链页面',
-    home: '首页'
+    home: '首页',
+    obe: 'OBE工具',
+    'obe_mkdir': '目录生成'
   },
   page: {
     login: {
@@ -302,6 +304,37 @@ const local: App.I18n.Schema = {
         desc5: 'Soybean 刚才把工作台页面随便写了一些，凑合能看了！'
       },
       creativity: '创意'
+    },
+    obeMkdir: {
+      title: 'OBE 目录生成',
+      subtitle: '上传桂林学院上课点名册，一键生成标准化的 OBE 教学目录结构',
+      classNameLabel: '班级名称',
+      classNamePlaceholder: '如：2022级数据科学与大数据技术2班',
+      courseNameLabel: '课程名称',
+      courseNamePlaceholder: '如：面向对象程序设计',
+      teacherNameLabel: '教师姓名',
+      teacherNamePlaceholder: '如：黄子坤',
+      fixedDirTypesLabel: '固定目录（不含学生子目录）',
+      studentDirTypesLabel: '考核目录（含学生子目录+人数后缀）',
+      studentDirTypesPlaceholder: '选择或输入自定义目录类型',
+      rosterLabel: '名单文件',
+      rosterHint: '支持桂林学院上课点名册 .xls（HTML 格式）或标准 .xlsx',
+      rosterDragHint: '点击或拖拽文件到此处上传',
+      submit: '生成并下载 ZIP',
+      reset: '重置',
+      rosterRequired: '请上传名单文件',
+      studentDirTypesRequired: '至少选择或输入一项考核目录',
+      bothDirTypesEmpty: '至少需要选择一项固定目录或考核目录',
+      uploadProgress: '上传中...{percent}%',
+      downloadProgress: '生成中...{percent}%',
+      success: '生成成功',
+      presetStudentDir: {
+        courseAssessment: '课程考核',
+        labReport: '实验实训报告',
+        finalExam: '期末试卷',
+        dailyHomework: '平时作业',
+        courseDesign: '课程设计'
+      }
     }
   },
   form: {

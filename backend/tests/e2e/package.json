@@ -1,0 +1,6 @@
+{
+  "name": "work-tools-e2e",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@playwright/test": "^1.50.0" }
+}

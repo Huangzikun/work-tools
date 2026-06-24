@@ -229,7 +229,9 @@ const local: App.I18n.Schema = {
     404: 'Page Not Found',
     500: 'Server Error',
     'iframe-page': 'Iframe',
-    home: 'Home'
+    home: 'Home',
+    obe: 'OBE Tools',
+    'obe_mkdir': 'Directory Generator'
   },
   page: {
     login: {
@@ -306,6 +308,37 @@ const local: App.I18n.Schema = {
         desc5: 'Soybean just wrote some of the workbench pages casually, and it was enough to see!'
       },
       creativity: 'Creativity'
+    },
+    obeMkdir: {
+      title: 'OBE Directory Generator',
+      subtitle: 'Upload the Guilin College roster to generate standardized OBE teaching directories',
+      classNameLabel: 'Class Name',
+      classNamePlaceholder: 'e.g. 2022 Data Science Class 2',
+      courseNameLabel: 'Course Name',
+      courseNamePlaceholder: 'e.g. Object-Oriented Programming',
+      teacherNameLabel: 'Teacher Name',
+      teacherNamePlaceholder: 'e.g. Zhang San',
+      fixedDirTypesLabel: 'Fixed Directories (no student subdirs)',
+      studentDirTypesLabel: 'Assessment Directories (with student subdirs + count suffix)',
+      studentDirTypesPlaceholder: 'Select or enter custom directory types',
+      rosterLabel: 'Roster File',
+      rosterHint: 'Accepts Guilin College .xls (HTML format) or standard .xlsx',
+      rosterDragHint: 'Click or drag a file here to upload',
+      submit: 'Generate & Download ZIP',
+      reset: 'Reset',
+      rosterRequired: 'Please upload a roster file',
+      studentDirTypesRequired: 'At least one assessment directory is required',
+      bothDirTypesEmpty: 'At least one fixed or assessment directory is required',
+      uploadProgress: 'Uploading...{percent}%',
+      downloadProgress: 'Generating...{percent}%',
+      success: 'Generated successfully',
+      presetStudentDir: {
+        courseAssessment: 'Course Assessment',
+        labReport: 'Lab Report',
+        finalExam: 'Final Exam',
+        dailyHomework: 'Daily Homework',
+        courseDesign: 'Course Design'
+      }
     }
   },
   form: {

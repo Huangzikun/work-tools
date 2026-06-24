@@ -1,0 +1,20 @@
+<html><head><meta charset="utf-8"></head><body>
+<table>
+<tr><th>课程名称</th><td>面向对象程序设计</td></tr>
+<tr><th>课程序号</th><td>CS2022-01</td></tr>
+<tr><th>课程性质</th><td>专业核心课</td></tr>
+</table>
+<table border="1">
+<thead>
+<tr><th>序号</th><th>行政班级</th><th>学号</th><th>姓名</th></tr>
+<tr><th>基本信息</th><th>基本信息</th><th>基本信息</th><th>基本信息</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>2022级数据科学与大数据技术2班</td><td>202213008727</td><td>王博</td></tr>
+<tr><td>2</td><td>2022级数据科学与大数据技术2班</td><td>202213008756</td><td>蒙怡冰</td></tr>
+<tr><td>3</td><td>2022级数据科学与大数据技术2班</td><td>202313008747</td><td>刘悦童</td></tr>
+<tr><td>4</td><td>2022级数据科学与大数据技术2班</td><td>202213008800</td><td>张三</td></tr>
+<tr><td>5</td><td>2022级数据科学与大数据技术2班</td><td>202213008801</td><td>李四</td></tr>
+</tbody>
+</table>
+</body></html>
