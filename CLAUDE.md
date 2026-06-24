@@ -19,7 +19,7 @@ This is an educational management system for handling student assignments, gradi
 ##### Frontend (`web/`) - 基于 soybean-admin
 - **技术栈**：Vue 3 + Vite + Naive UI + Pinia + TypeScript + UnoCSS
 - **包管理器**：pnpm >= 10.5.0，Node >= 20.19.0
-- **开发端口**：http://localhost:9527
+- **开发端口**：http://localhost:9530
 - **来源**：克隆自 https://github.com/soybeanJS/soybean-admin.git（克隆后已删除其 `.git`）
 - **路由系统**：基于 elegant-router 的文件路由
 - **后端代理**：通过 `.env.dev` 中的 `VITE_SERVICE_BASE_URL` 指向 Flask
@@ -89,7 +89,7 @@ python backend/init_db.py   # 建库 + 建表 + 写入默认 admin 用户
 ```bash
 cd web
 pnpm install
-pnpm dev   # http://localhost:9527
+pnpm dev   # http://localhost:9530
 ```
 
 #### Command-Line Tools（共用 LLM 客户端）
@@ -111,8 +111,8 @@ export ARK_API_KEY=your_volcengine_ark_api_key
 #### Web App 启动顺序
 1. **MariaDB**：`mysql.server start`（或确认 localhost:3306 可连）
 2. **Backend**：`conda activate teacherrecruitment && python backend/app.py`（监听 5001）
-3. **Frontend**：`cd web && pnpm dev`（监听 9527）
-4. **浏览器**：访问 http://localhost:9527，用 `admin / 123456` 登录
+3. **Frontend**：`cd web && pnpm dev`（监听 9530）
+4. **浏览器**：访问 http://localhost:9530，用 `admin / 123456` 登录
 
 #### Command-Line Tools
 

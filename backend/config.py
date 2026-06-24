@@ -19,10 +19,8 @@ class Config:
     JWT_REFRESH_TTL = int(os.getenv("JWT_REFRESH_TTL", "604800"))
 
     CORS_ORIGINS = [
-        "http://localhost:9527",
-        "http://127.0.0.1:9527",
-        "http://localhost:9528",
-        "http://127.0.0.1:9528",
+        "http://localhost:9530",
+        "http://127.0.0.1:9530",
     ]
 
     DEFAULT_ADMIN = {

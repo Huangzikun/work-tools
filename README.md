@@ -54,7 +54,7 @@ python backend/app.py
 cd web
 pnpm install
 pnpm dev
-# 访问 http://localhost:9527
+# 访问 http://localhost:9530
 ```
 
 ### 默认账号
