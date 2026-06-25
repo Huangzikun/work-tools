@@ -143,6 +143,7 @@ export async function startObeGrade(
   form.append('teacherPrompt', params.teacherPrompt);
   if (params.systemPrompt) form.append('systemPrompt', params.systemPrompt);
   form.append('signPicture', params.signPicture);
+  form.append('skipGraded', params.skipGraded === false ? 'false' : 'true');
 
   const token = localStg.get('token');
   const resp = await axios.post<App.Service.Response<Api.Obe.GradeResult>>(

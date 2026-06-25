@@ -136,6 +136,25 @@ def _rel_to_task_root(file_path: Path, task_id: int) -> str:
         return file_path.name
 
 
+def _reset_student_grading_state(student: ObeStudent) -> bool:
+    """如果学生之前已 graded，重置为 pending（旧成绩失效，因为文件已被新版本覆盖）。
+
+    返回 True 表示发生了重置（用于统计提示用户）。
+    """
+    if student.grade_status == "graded":
+        student.grade_status = "pending"
+        student.last_score = None
+        student.last_comment = None
+        student.last_graded_file = None
+        student.last_grade_error = None
+        student.last_graded_at = None
+        return True
+    # failed / grading / pending 也清一下错误，让状态干净
+    if student.grade_status == "failed":
+        student.last_grade_error = None
+    return False
+
+
 def _save_inner_zip_to_student_dir(
     inner_zip_path: Path, student: ObeStudent, task_id: int
 ) -> List[Path]:
@@ -207,7 +226,8 @@ def _process_inner_zip(
             "reason": "no_docx_inside",
         }
 
-    # 记录到 ObeStudent（覆盖；多次上传同一实验会覆盖）
+    # 文件已被新版本覆盖，如果之前已 graded 必须重置状态（否则数据库说已批改但 docx 是新原始版）
+    reset = _reset_student_grading_state(student)
     rel = _rel_to_task_root(main_docx, task_id)
     student.uploaded_file = rel
     student.matched = True
@@ -220,6 +240,7 @@ def _process_inner_zip(
         "fileName": main_docx.name,
         "filePath": rel,
         "allFiles": [f.name for f in extracted],
+        "resetPreviousGrading": reset,
     }
 
 
@@ -247,6 +268,7 @@ def _process_flat_docx(
             }
         return {"kind": "unmatched", "fileName": docx_path.name}
 
+    reset = _reset_student_grading_state(student)
     rel = _rel_to_task_root(docx_path, task_id)
     student.uploaded_file = rel
     student.matched = True
@@ -258,6 +280,7 @@ def _process_flat_docx(
         "studentClass": student.student_class,
         "fileName": docx_path.name,
         "filePath": rel,
+        "resetPreviousGrading": reset,
     }
 
 
@@ -402,6 +425,7 @@ def resolve_ambiguous(
         else:
             rel = file_path_str
 
+        reset = _reset_student_grading_state(s)
         s.uploaded_file = rel
         s.matched = True
         resolved.append(
@@ -410,6 +434,7 @@ def resolve_ambiguous(
                 "studentName": s.student_name,
                 "fileName": abs_path.name,
                 "filePath": rel,
+                "resetPreviousGrading": reset,
             }
         )
 

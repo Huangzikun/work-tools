@@ -100,24 +100,42 @@ def start_grading_job(
     sign_picture_rel: str,
     teacher_prompt: str,
     system_prompt: Optional[str] = None,
+    skip_graded: bool = True,
 ) -> int:
-    """创建 ObeGradingJob 并启动后台 worker。返回 job_id。"""
+    """创建 ObeGradingJob 并启动后台 worker。返回 job_id。
+
+    skip_graded=True 时只批改 grade_status IN (pending, failed) 的学生；
+    False 时全量重跑（包括已经 graded 的）。
+    """
     running = has_running_job(task_id, dir_type, experiment_label)
     if running:
         raise ObeGradingError(
             f"该实验「{experiment_label}」已有批改任务在运行（jobId={running}），请等待完成"
         )
 
-    matched_count = (
-        ObeStudent.query.filter_by(
-            task_id=task_id,
-            dir_type=dir_type,
-            experiment_label=experiment_label,
-            matched=True,
-        ).count()
+    matched_query = ObeStudent.query.filter_by(
+        task_id=task_id,
+        dir_type=dir_type,
+        experiment_label=experiment_label,
+        matched=True,
     )
-    if matched_count == 0:
+    matched_total = matched_query.count()
+    if matched_total == 0:
         raise ObeGradingError("该实验下没有已匹配的学生文件，请先上传学生文件")
+
+    if skip_graded:
+        target_query = matched_query.filter(
+            ObeStudent.grade_status.in_(["pending", "failed"])
+        )
+        target_count = target_query.count()
+        if target_count == 0:
+            raise ObeGradingError(
+                f"该实验下全部 {matched_total} 个学生已批改完成，"
+                "如需重新批改请勾选「覆盖已批改学生」"
+            )
+        matched_count = target_count
+    else:
+        matched_count = matched_total
 
     job = ObeGradingJob(
         task_id=task_id,
@@ -148,7 +166,9 @@ def start_grading_job(
     def worker():
         with app.app_context():
             try:
-                _run_grading(task_id, job_id, dir_type, experiment_label, sys_prompt, teacher_prompt)
+                _run_grading(
+                    task_id, job_id, dir_type, experiment_label, sys_prompt, teacher_prompt, skip_graded
+                )
             except Exception as exc:
                 app.logger.exception("grading job %s failed", job_id)
                 _mark_job_failed(task_id, job_id, dir_type, experiment_label, str(exc))
@@ -171,6 +191,7 @@ def _run_grading(
     experiment_label: str,
     system_prompt: str,
     teacher_prompt: str,
+    skip_graded: bool = True,
 ) -> None:
     job = ObeGradingJob.query.get(job_id)
     if job is None:
@@ -189,20 +210,20 @@ def _run_grading(
     write_job_log(
         task_id,
         job_id,
-        f"[{datetime.utcnow().isoformat()}] job {job_id} start: dir_type={dir_type}, experiment={experiment_label}\n",
+        f"[{datetime.utcnow().isoformat()}] job {job_id} start: dir_type={dir_type}, "
+        f"experiment={experiment_label}, skip_graded={skip_graded}\n",
         append=False,
     )
 
-    students = (
-        ObeStudent.query.filter_by(
-            task_id=task_id,
-            dir_type=dir_type,
-            experiment_label=experiment_label,
-            matched=True,
-        )
-        .order_by(ObeStudent.student_id)
-        .all()
+    query = ObeStudent.query.filter_by(
+        task_id=task_id,
+        dir_type=dir_type,
+        experiment_label=experiment_label,
+        matched=True,
     )
+    if skip_graded:
+        query = query.filter(ObeStudent.grade_status.in_(["pending", "failed"]))
+    students = query.order_by(ObeStudent.student_id).all()
 
     graded = 0
     failed = 0

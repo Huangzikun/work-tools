@@ -108,6 +108,8 @@ declare namespace Api {
       studentClass?: string;
       fileName: string;
       filePath: string;
+      /** 本次上传覆盖了该学生之前已批改的成绩，已自动重置为「未批改」 */
+      resetPreviousGrading?: boolean;
     }
 
     interface AmbiguousItem {
@@ -150,6 +152,8 @@ declare namespace Api {
       teacherPrompt: string;
       systemPrompt?: string;
       signPicture: File;
+      /** 默认 true：只批改 pending/failed；false 时全量重跑（含已 graded） */
+      skipGraded?: boolean;
     }
 
     interface GradeResult {

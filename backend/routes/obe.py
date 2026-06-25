@@ -306,6 +306,9 @@ def grade_task(task_id: int):
     sign_date = (request.form.get("signDate") or "").strip()
     teacher_prompt = (request.form.get("teacherPrompt") or "").strip()
     system_prompt = (request.form.get("systemPrompt") or "").strip() or None
+    # 默认 skip_graded=true（只批 pending/failed）；用户勾选「覆盖已批改」时传 false
+    skip_graded_raw = (request.form.get("skipGraded") or "true").strip().lower()
+    skip_graded = skip_graded_raw not in ("false", "0", "no", "off")
 
     if not dir_type:
         return fail("dirType 必填")
@@ -335,6 +338,7 @@ def grade_task(task_id: int):
             sign_picture_rel=sign_rel,
             teacher_prompt=teacher_prompt,
             system_prompt=system_prompt,
+            skip_graded=skip_graded,
         )
     except ObeGradingError as exc:
         return fail(exc.message)

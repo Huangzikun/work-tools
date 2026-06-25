@@ -5,6 +5,7 @@ import {
   NAlert,
   NButton,
   NCard,
+  NCheckbox,
   NDataTable,
   NDatePicker,
   NForm,
@@ -165,9 +166,14 @@ async function handleUploadFiles(files: File[]) {
     const totalMatched = result.experiments.reduce((sum, e) => sum + e.matched.length, 0);
     const totalAmbiguous = result.experiments.reduce((sum, e) => sum + e.ambiguous.length, 0);
     const totalUnmatched = result.experiments.reduce((sum, e) => sum + e.unmatched.length, 0);
+    const totalReset = result.experiments.reduce(
+      (sum, e) => sum + e.matched.filter(m => m.resetPreviousGrading).length,
+      0
+    );
 
+    const resetHint = totalReset > 0 ? `，重置 ${totalReset} 个已批改学生（需重新批改）` : '';
     window.$message?.success(
-      `上传完成（${result.experiments.length} 个实验）：成功匹配 ${totalMatched}，歧义 ${totalAmbiguous}，未识别 ${totalUnmatched}`
+      `上传完成（${result.experiments.length} 个实验）：成功匹配 ${totalMatched}，歧义 ${totalAmbiguous}，未识别 ${totalUnmatched}${resetHint}`
     );
 
     await loadDetail();
@@ -265,7 +271,8 @@ const gradeForm = ref({
   teacherName: '',
   signDate: Math.floor(Date.now() / 1000),
   teacherPrompt: '',
-  signPicture: null as File | null
+  signPicture: null as File | null,
+  overwriteGraded: false
 });
 const gradeFormRef = ref();
 const signPictureFileList = ref<UploadFileInfo[]>([]);
@@ -288,7 +295,8 @@ function openGradeModal() {
     teacherName: task.value?.teacherName || '',
     signDate: Math.floor(Date.now() / 1000),
     teacherPrompt: '',
-    signPicture: null
+    signPicture: null,
+    overwriteGraded: false
   };
   signPictureFileList.value = [];
   gradeModalVisible.value = true;
@@ -327,7 +335,9 @@ async function submitGrade() {
       teacherName: gradeForm.value.teacherName.trim(),
       signDate: signDateStr,
       teacherPrompt: gradeForm.value.teacherPrompt.trim(),
-      signPicture: gradeForm.value.signPicture
+      signPicture: gradeForm.value.signPicture,
+      // overwriteGraded=true → skipGraded=false（全量重跑）；默认 false → skipGraded=true（增量）
+      skipGraded: !gradeForm.value.overwriteGraded
     });
     window.$message?.success(`批改已开始（jobId=${result.jobId}）`);
     gradeModalVisible.value = false;
@@ -650,6 +660,11 @@ const hasAmbiguousToResolve = computed(() =>
             :autosize="{ minRows: 4, maxRows: 10 }"
             placeholder="请填写本次实验的批改要求"
           />
+        </NFormItem>
+        <NFormItem label=" ">
+          <NCheckbox v-model:checked="gradeForm.overwriteGraded">
+            覆盖已批改学生（不勾选时只批改「未批改 / 失败」的学生，已批改的跳过）
+          </NCheckbox>
         </NFormItem>
       </NForm>
       <template #footer>
