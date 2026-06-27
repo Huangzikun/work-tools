@@ -55,9 +55,12 @@ def _parse_json_field(raw: str, field_name: str) -> dict:
 @lesson_plan_bp.get("/default-prompt")
 @jwt_required
 def default_prompt():
-    from services.lesson_plan.parser import DEFAULT_SYSTEM_PROMPT
+    from services.lesson_plan.parser import DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT
 
-    return success(DEFAULT_SYSTEM_PROMPT)
+    return success({
+        "systemPrompt": DEFAULT_SYSTEM_PROMPT,
+        "userPrompt": DEFAULT_USER_PROMPT,
+    })
 
 
 @lesson_plan_bp.post("/generate")
@@ -85,6 +88,10 @@ def generate():
         batch_size = int(request.form.get("batchSize") or "2")
     except ValueError:
         return fail("batchSize 必须为整数")
+    try:
+        total_hours = int(request.form.get("totalHours") or "0")
+    except ValueError:
+        return fail("totalHours 必须为整数")
 
     try:
         course_info = _parse_json_field(request.form.get("courseInfo"), "courseInfo")
@@ -98,6 +105,7 @@ def generate():
         return fail("teacherInfo 必填")
 
     system_prompt = (request.form.get("systemPrompt") or "").strip() or None
+    user_prompt = (request.form.get("userPrompt") or "").strip() or None
 
     file_bytes = file_storage.read()
     if not file_bytes:
@@ -113,6 +121,8 @@ def generate():
             course_info=course_info,
             teacher_info=teacher_info,
             system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            total_hours=total_hours or None,
         )
     except LessonPlanError as exc:
         return fail(exc.message)
@@ -173,8 +183,23 @@ def regenerate(task_id: int):
         return fail("任务不存在或无权访问")
 
     system_prompt = (request.form.get("systemPrompt") or "").strip() or None
+    user_prompt = (request.form.get("userPrompt") or "").strip() or None
+    try:
+        total_hours_raw = request.form.get("totalHours")
+        total_hours = int(total_hours_raw) if total_hours_raw else None
+    except ValueError:
+        total_hours = None
+    changed = False
     if system_prompt is not None:
         task.system_prompt = system_prompt
+        changed = True
+    if user_prompt is not None:
+        task.user_prompt = user_prompt
+        changed = True
+    if total_hours is not None:
+        task.total_hours = total_hours
+        changed = True
+    if changed:
         db.session.commit()
 
     try:

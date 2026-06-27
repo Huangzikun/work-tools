@@ -18,7 +18,11 @@ from flask import current_app
 from extensions import db
 from models.lesson_plan import LessonPlanTask
 from services.lesson_plan.docx_builder import DocxBuilder
-from services.lesson_plan.parser import DEFAULT_SYSTEM_PROMPT, SyllabusParser
+from services.lesson_plan.parser import (
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_USER_PROMPT,
+    SyllabusParser,
+)
 from services.lesson_plan_storage import (
     LessonPlanStorageError,
     backup_output_for_retry,
@@ -81,6 +85,8 @@ def create_task(
     course_info: dict,
     teacher_info: dict,
     system_prompt: Optional[str] = None,
+    user_prompt: Optional[str] = None,
+    total_hours: Optional[int] = None,
 ) -> int:
     """创建任务记录 + 保存大纲 + 启动 worker。返回 task_id。"""
     if total_lessons < 1 or total_lessons > 200:
@@ -96,6 +102,8 @@ def create_task(
         course_info=course_info,
         teacher_info=teacher_info,
         system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        total_hours=total_hours,
         status="pending",
         progress_total=total_lessons,
         progress_done=0,
@@ -158,8 +166,9 @@ def _run_generation(task_id: int) -> None:
 
     llm = _make_llm_client()
     sys_prompt = task.system_prompt or DEFAULT_SYSTEM_PROMPT
+    user_prompt = task.user_prompt or DEFAULT_USER_PROMPT
 
-    parser = SyllabusParser(llm, system_prompt=sys_prompt)
+    parser = SyllabusParser(llm, system_prompt=sys_prompt, user_prompt=user_prompt)
 
     def on_progress(done: int, total: int, label: str):
         task.status = "generating"
@@ -168,11 +177,14 @@ def _run_generation(task_id: int) -> None:
         db.session.commit()
         _update_progress(task_id, status="generating", done=done, total=total, label=label)
 
+    # 旧任务可能没有 total_hours，回退到「每教案 5 课时」以兼容。
+    total_hours = task.total_hours or (task.total_lessons * 5)
     lessons = parser.parse(
         syllabus_path=str(syllabus_path),
         total_lessons=task.total_lessons,
         batch_size=task.batch_size,
         progress_callback=on_progress,
+        total_hours=total_hours,
     )
 
     if not lessons:

@@ -3,9 +3,8 @@ import { computed, reactive, ref } from 'vue';
 import type { UploadFileInfo } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import { useFormRules, useNaiveForm } from '@/hooks/common/form';
-import { generateLessonPlan } from '@/service/api/lessonPlan';
+import { fetchLessonPlanDefaultPrompts, generateLessonPlan } from '@/service/api/lessonPlan';
 import { useAuthStore } from '@/store/modules/auth';
-import { fetchLessonPlanDefaultSystemPrompt } from '@/service/api/lessonPlan';
 
 defineOptions({
   name: 'LessonPlanGenerate'
@@ -24,6 +23,7 @@ const COURSE_NATURE_OPTIONS = ['必修', '选修'].map(v => ({ label: v, value: 
 
 interface FormModel {
   totalLessons: number | null;
+  totalHours: number | null;
   batchSize: number;
   courseName: string;
   courseNameEn: string;
@@ -41,12 +41,14 @@ interface FormModel {
   courseType: string;
   courseNature: string;
   systemPrompt: string;
+  userPrompt: string;
 }
 
 const today = new Date().toISOString().slice(0, 10);
 
 const model = reactive<FormModel>({
   totalLessons: 4,
+  totalHours: null,
   batchSize: 2,
   courseName: '',
   courseNameEn: '',
@@ -63,11 +65,13 @@ const model = reactive<FormModel>({
   writeDate: today,
   courseType: '专业教育课程',
   courseNature: '必修',
-  systemPrompt: ''
+  systemPrompt: '',
+  userPrompt: ''
 });
 
 const rules = computed<Record<string, App.Global.FormRule[]>>(() => ({
   totalLessons: [defaultRequiredRule],
+  totalHours: [{ required: true, message: '请填写总课时数（用于按课时分配每教案时间）' }],
   courseName: [defaultRequiredRule],
   teacherName: [defaultRequiredRule]
 }));
@@ -87,14 +91,15 @@ const uploadText = ref('');
 
 const advancedCollapsed = ref(true);
 
-async function loadDefaultSystemPrompt() {
-  const { data, error } = await fetchLessonPlanDefaultSystemPrompt();
+async function loadDefaultPrompts() {
+  const { data, error } = await fetchLessonPlanDefaultPrompts();
   if (!error && data) {
-    model.systemPrompt = data;
+    model.systemPrompt = data.systemPrompt;
+    model.userPrompt = data.userPrompt;
   }
 }
 
-loadDefaultSystemPrompt();
+loadDefaultPrompts();
 
 function buildCourseInfo(): Api.LessonPlan.CourseInfo {
   return {
@@ -131,6 +136,10 @@ async function handleSubmit() {
     window.$message?.error('教案数必须在 1-200 之间');
     return;
   }
+  if (!model.totalHours || model.totalHours < 1) {
+    window.$message?.error('请填写总课时数（用于按课时分配每教案时间）');
+    return;
+  }
 
   submitting.value = true;
   uploadPercent.value = 0;
@@ -142,10 +151,12 @@ async function handleSubmit() {
         syllabus: syllabusFile.value,
         syllabusName: syllabusFile.value.name,
         totalLessons: model.totalLessons,
+        totalHours: model.totalHours as number,
         batchSize: model.batchSize,
         courseInfo: buildCourseInfo(),
         teacherInfo: buildTeacherInfo(),
-        systemPrompt: model.systemPrompt.trim() || undefined
+        systemPrompt: model.systemPrompt.trim() || undefined,
+        userPrompt: model.userPrompt.trim() || undefined
       },
       {
         onUploadProgress: e => {
@@ -189,6 +200,7 @@ function handleReset() {
   model.courseType = '专业教育课程';
   model.courseNature = '必修';
   model.totalLessons = 4;
+  model.totalHours = null;
   model.batchSize = 2;
   fileList.value = [];
   syllabusFile.value = null;
@@ -199,7 +211,7 @@ function handleReset() {
   <NSpace vertical :size="16">
     <NCard :bordered="false" class="card-wrapper">
       <NAlert type="info" :show-icon="true">
-        上传教学大纲 docx，填写课程基本信息后由 AI 自动生成完整教案。「教案数」决定生成多少份教案，每份对应一次课（约 5 课时 / 200 分钟）。提交后可在任务列表查看进度。
+        上传教学大纲 docx，填写课程基本信息后由 AI 自动生成完整教案。「教案数」决定生成多少份教案，每份对应一次课（约 5 课时 / 200 分钟）。可在下方「高级设置」分别自定义系统提示词与用户提示词（默认已内置「课堂内容分节格式」）。提交后可在任务列表查看进度。
       </NAlert>
     </NCard>
 
@@ -238,6 +250,10 @@ function handleReset() {
           <NFormItem label="教案数" path="totalLessons">
             <NInputNumber v-model:value="model.totalLessons" :min="1" :max="200" class="w-full" />
             <NText depth="3" class="ml-8px text-12px whitespace-nowrap">要生成多少份教案</NText>
+          </NFormItem>
+          <NFormItem label="总课时数" path="totalHours">
+            <NInputNumber v-model:value="model.totalHours" :min="1" class="w-full" placeholder="如 51" />
+            <NText depth="3" class="ml-8px text-12px whitespace-nowrap">系统按 总课时÷教案数 算每教案时间</NText>
           </NFormItem>
           <NFormItem label="批量大小">
             <div class="flex items-center w-full">
@@ -312,12 +328,20 @@ function handleReset() {
       <NCollapse>
         <NCollapseItem title="高级设置（自定义 AI 提示词）" name="advanced">
           <NForm label-placement="top">
-            <NFormItem label="System Prompt">
+            <NFormItem label="System Prompt（系统提示词）">
               <NInput
                 v-model:value="model.systemPrompt"
                 type="textarea"
                 :autosize="{ minRows: 8, maxRows: 20 }"
-                placeholder="留空将使用内置默认提示词"
+                placeholder="留空将使用内置默认系统提示词"
+              />
+            </NFormItem>
+            <NFormItem label="User Prompt（用户提示词 / 教学内容格式要求）">
+              <NInput
+                v-model:value="model.userPrompt"
+                type="textarea"
+                :autosize="{ minRows: 8, maxRows: 20 }"
+                placeholder="留空使用默认分节格式；此处填写的内容会作为「额外要求」随教学大纲一起发给 AI，例如要求课堂内容按「一、导入（5 分钟）…」分节"
               />
             </NFormItem>
           </NForm>

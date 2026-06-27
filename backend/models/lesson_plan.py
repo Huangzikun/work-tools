@@ -16,6 +16,8 @@ class LessonPlanTask(db.Model):
     course_info = db.Column(db.JSON, nullable=False, comment="课程基本信息（首页表格 0 字段）")
     teacher_info = db.Column(db.JSON, nullable=False, comment="教师信息（首页表格 1 字段）")
     system_prompt = db.Column(db.Text, comment="自定义 system prompt（高级）")
+    user_prompt = db.Column(db.Text, comment="自定义用户提示词补充要求（追加到 user prompt 末尾）")
+    total_hours = db.Column(db.Integer, comment="课程总课时数（用于按课时分配每教案时间）")
     status = db.Column(
         db.String(32),
         nullable=False,

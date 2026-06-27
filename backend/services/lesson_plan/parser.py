@@ -25,6 +25,11 @@ DEFAULT_SYSTEM_PROMPT = (
 ).read_text(encoding="utf-8").strip()
 
 
+DEFAULT_USER_PROMPT = (
+    Path(__file__).parent / "default_user_prompt.txt"
+).read_text(encoding="utf-8").strip()
+
+
 LESSON_FIELDS = """
 {
     "课次": "由调用方指定，本批次必须按顺序填入期望值，不可为 0 或空",
@@ -54,9 +59,23 @@ ProgressCallback = Callable[[int, int, str], None]
 
 
 class SyllabusParser:
-    def __init__(self, llm_client, system_prompt: Optional[str] = None):
+    def __init__(
+        self,
+        llm_client,
+        system_prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None,
+    ):
         self.llm = llm_client
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        # user_prompt 是用户的「补充要求」：非空时作为额外区块追加到系统自动拼接的
+        # user prompt 末尾（课次范围/字段/大纲/数量约束仍由系统保证）。
+        self.user_prompt = (user_prompt or "").strip() or DEFAULT_USER_PROMPT
+        # 时间预算默认值（parse() 会按 total_hours/total_lessons 重新计算）。
+        # 默认每教案 5 课时 × 40 分钟 = 200 分钟，兼容旧逻辑。
+        self.total_lessons = 0
+        self.total_hours: Optional[int] = None
+        self.per_lesson_hours = 5
+        self.per_lesson_minutes = 200
 
     def parse(
         self,
@@ -64,9 +83,25 @@ class SyllabusParser:
         total_lessons: int,
         batch_size: int = 2,
         progress_callback: Optional[ProgressCallback] = None,
+        total_hours: Optional[int] = None,
     ) -> List[LessonPlan]:
         syllabus_content = self._read_syllabus(syllabus_path)
         logger.info("syllabus length=%d chars", len(syllabus_content))
+
+        # 按课时数动态计算每教案可用时间：
+        # 每教案课时 = round(总课时 / 教案数)，每课时 40 分钟 → 每教案分钟数。
+        # 不整除时四舍五入到整数课时（如 50/17≈2.94 → 3 课时）。
+        self.total_lessons = total_lessons
+        self.total_hours = total_hours
+        if total_hours and total_hours > 0 and total_lessons > 0:
+            self.per_lesson_hours = int(total_hours / total_lessons + 0.5)
+        else:
+            self.per_lesson_hours = 5
+        self.per_lesson_minutes = self.per_lesson_hours * 40
+        logger.info(
+            "time budget: total_hours=%s, lessons=%d -> %d 课时/教案 = %d 分钟/教案",
+            total_hours, total_lessons, self.per_lesson_hours, self.per_lesson_minutes,
+        )
 
         all_lessons: List[LessonPlan] = []
         if progress_callback:
@@ -197,7 +232,7 @@ class SyllabusParser:
             f"必须紧扣教学大纲，按章节顺序合理选择本课次的内容，不可编造。\n\n"
             f"字段列表：\n{LESSON_FIELDS}\n\n"
             f"教学大纲内容：\n{syllabus_content}\n"
-        )
+        ) + self._build_time_constraint() + self._format_user_supplement()
         last_exc: Optional[Exception] = None
         for attempt in range(max_attempts):
             try:
@@ -232,6 +267,28 @@ class SyllabusParser:
                     parts.append(cell.text)
         return "\n".join(parts)
 
+    def _build_time_constraint(self) -> str:
+        """动态时间约束区块：按总课时÷教案数算每教案可用分钟，写入 user prompt。"""
+        total_hours_desc = f"{self.total_hours}" if self.total_hours else "未指定（按默认）"
+        return (
+            "\n本次时间分配要求：\n"
+            f"- 本课程共 {total_hours_desc} 课时，分 {self.total_lessons} 次教案，"
+            f"每次教案约 {self.per_lesson_hours} 课时。\n"
+            f"- 每课时 40 分钟，故每次教案可用时间合计约 {self.per_lesson_minutes} 分钟。\n"
+            f"- 「课堂内容」各教学环节标注的分钟数之和应等于（或接近）{self.per_lesson_minutes} 分钟，"
+            "请在此额度内根据内容灵活分配各环节时间。\n"
+        )
+
+    def _format_user_supplement(self) -> str:
+        """用户补充要求区块：非空时作为额外约束追加到 user prompt 末尾。"""
+        supp = (self.user_prompt or "").strip()
+        if not supp:
+            return ""
+        return (
+            "\n\n【本次生成的额外要求（请严格遵循）】\n"
+            f"{supp}"
+        )
+
     def _build_user_prompt(
         self,
         syllabus_content: str,
@@ -252,6 +309,8 @@ class SyllabusParser:
             f"- 内容必须紧扣教学大纲，按章节顺序合理分配到每个课次，不可编造。\n"
             f"- 如果大纲未提及，则对象内对应项设置为空字符串。\n"
             f"- 如果一项中包含列表，每一条目后用换行分隔。\n"
+            f"{self._build_time_constraint()}"
+            f"{self._format_user_supplement()}"
         )
 
     def _parse_json_response(self, response_text: str) -> List[dict]:

@@ -15,14 +15,16 @@ export interface GenerateParams {
   syllabus: File;
   syllabusName?: string;
   totalLessons: number;
+  totalHours: number;
   batchSize: number;
   courseInfo: Api.LessonPlan.CourseInfo;
   teacherInfo: Api.LessonPlan.TeacherInfo;
   systemPrompt?: string;
+  userPrompt?: string;
 }
 
-export function fetchLessonPlanDefaultSystemPrompt() {
-  return request<string>({
+export function fetchLessonPlanDefaultPrompts() {
+  return request<{ systemPrompt: string; userPrompt: string }>({
     url: '/lesson-plan/default-prompt',
     method: 'get'
   });
@@ -36,10 +38,12 @@ export async function generateLessonPlan(
   form.append('syllabus', params.syllabus);
   if (params.syllabusName) form.append('syllabusName', params.syllabusName);
   form.append('totalLessons', String(params.totalLessons));
+  form.append('totalHours', String(params.totalHours));
   form.append('batchSize', String(params.batchSize));
   form.append('courseInfo', JSON.stringify(params.courseInfo));
   form.append('teacherInfo', JSON.stringify(params.teacherInfo));
   if (params.systemPrompt) form.append('systemPrompt', params.systemPrompt);
+  if (params.userPrompt) form.append('userPrompt', params.userPrompt);
 
   const token = localStg.get('token');
   const resp = await axios.post<App.Service.Response<{ taskId: number; status: string }>>(
@@ -79,9 +83,14 @@ export function fetchLessonPlanProgress(taskId: number) {
   });
 }
 
-export function regenerateLessonPlan(taskId: number, systemPrompt?: string) {
+export function regenerateLessonPlan(
+  taskId: number,
+  systemPrompt?: string,
+  userPrompt?: string
+) {
   const form = new FormData();
   if (systemPrompt) form.append('systemPrompt', systemPrompt);
+  if (userPrompt) form.append('userPrompt', userPrompt);
   return request<{ taskId: number; status: string }>({
     url: `/lesson-plan/tasks/${taskId}/regenerate`,
     method: 'post',
