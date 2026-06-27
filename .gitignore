@@ -77,6 +77,7 @@ backend/*.log
 
 # 测试产物
 .pytest_cache/
+.claude-test-artifacts/
 backend/tests/e2e/.auth/
 backend/tests/e2e/node_modules/
 backend/tests/e2e/playwright-report/

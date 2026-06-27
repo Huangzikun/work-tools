@@ -80,46 +80,15 @@ class SyllabusParser:
             if progress_callback:
                 progress_callback(start - 1, total_lessons, label)
 
-            user_prompt = self._build_user_prompt(
-                syllabus_content, start, end, total_lessons
-            )
-
             try:
-                response_text = self.llm.generate_with_retry(
-                    system_prompt=self.system_prompt,
-                    user_prompt=user_prompt,
-                    json_output=True,
+                lessons = self._generate_batch_with_fallback(
+                    syllabus_content, expected_numbers, total_lessons
                 )
-                lessons_data = self._parse_json_response(response_text)
-                lessons = [LessonPlan.from_dict(d) for d in lessons_data]
 
                 # 强制按期望课次赋值：LLM 输出的"课次"字段不可信（可能为 0/null/跳号），
                 # 由调用方按批次顺序强制覆盖为 start, start+1, ..., end
                 for i, lesson in enumerate(lessons):
-                    if i < len(expected_numbers):
-                        lesson.课次 = expected_numbers[i]
-
-                # LLM 输出数量不足时补空占位（避免表格缺失）
-                while len(lessons) < len(expected_numbers):
-                    idx = len(lessons)
-                    placeholder = LessonPlan(
-                        课次=expected_numbers[idx],
-                        授课内容=f"第 {expected_numbers[idx]} 次课（AI 未生成，待补充）",
-                    )
-                    lessons.append(placeholder)
-                    logger.warning(
-                        "LLM 返回教案数量不足，已补占位：期望第 %d 课",
-                        expected_numbers[idx],
-                    )
-
-                # LLM 输出数量超出时截断
-                if len(lessons) > len(expected_numbers):
-                    logger.warning(
-                        "LLM 返回教案数量超出，已截断：实际 %d 期望 %d",
-                        len(lessons),
-                        len(expected_numbers),
-                    )
-                    lessons = lessons[: len(expected_numbers)]
+                    lesson.课次 = expected_numbers[i]
 
                 all_lessons.extend(lessons)
                 logger.info("generated %d lessons (expected %d-%d)",
@@ -132,6 +101,127 @@ class SyllabusParser:
                 raise
 
         return all_lessons
+
+    def _generate_batch_with_fallback(
+        self,
+        syllabus_content: str,
+        expected_numbers: List[int],
+        total_lessons: int,
+    ) -> List[LessonPlan]:
+        """整批生成 + 不足时单课兜底。绝不返回占位符。
+
+        流程：
+        1. 整批调用最多 MAX_BATCH_ATTEMPTS 次，每次给 LLM 反馈上次返回数量
+        2. 仍不够 → 对缺失的每个课次单独调用 LLM（最多 MAX_SINGLE_ATTEMPTS 次）
+        3. 单课仍失败 → 抛错让任务进 failed，而不是用空白教案骗用户
+        """
+        batch_size = len(expected_numbers)
+        max_batch_attempts = 3
+        max_single_attempts = 2
+
+        lessons: List[LessonPlan] = []
+        for attempt in range(max_batch_attempts):
+            lessons = self._call_batch_llm(
+                syllabus_content,
+                expected_numbers,
+                total_lessons,
+                attempt=attempt,
+                prev_count=len(lessons) if attempt > 0 else None,
+            )
+            if len(lessons) >= batch_size:
+                logger.info(
+                    "整批成功 (第 %d 次): 返回 %d 个, 期望 %d 个",
+                    attempt + 1, len(lessons), batch_size,
+                )
+                return lessons[:batch_size]
+            logger.warning(
+                "整批第 %d 次返回 %d 个, 期望 %d 个",
+                attempt + 1, len(lessons), batch_size,
+            )
+
+        # 走单课兜底：保留已有前 N 个，对剩余位置单独生成
+        result = list(lessons)
+        missing_count = batch_size - len(result)
+        logger.warning(
+            "整批 %d 次仍缺 %d 个，进入单课兜底",
+            max_batch_attempts, missing_count,
+        )
+
+        for idx in range(len(result), batch_size):
+            expected_num = expected_numbers[idx]
+            single = self._call_single_lesson(
+                syllabus_content, expected_num, total_lessons, max_single_attempts
+            )
+            result.append(single)
+            logger.info("单课兜底成功: 课次 %d", expected_num)
+
+        return result
+
+    def _call_batch_llm(
+        self,
+        syllabus_content: str,
+        expected_numbers: List[int],
+        total_lessons: int,
+        attempt: int,
+        prev_count: Optional[int],
+    ) -> List[LessonPlan]:
+        start = expected_numbers[0]
+        end = expected_numbers[-1]
+        user_prompt = self._build_user_prompt(
+            syllabus_content, start, end, total_lessons
+        )
+        if attempt > 0 and prev_count is not None:
+            user_prompt += (
+                f"\n\n[重要] 上次调用仅返回 {prev_count} 个对象，"
+                f"期望 {len(expected_numbers)} 个，本次必须严格按数量输出。"
+            )
+
+        response_text = self.llm.generate_with_retry(
+            system_prompt=self.system_prompt,
+            user_prompt=user_prompt,
+            json_output=True,
+        )
+        lessons_data = self._parse_json_response(response_text)
+        return [LessonPlan.from_dict(d) for d in lessons_data]
+
+    def _call_single_lesson(
+        self,
+        syllabus_content: str,
+        lesson_num: int,
+        total_lessons: int,
+        max_attempts: int,
+    ) -> LessonPlan:
+        user_prompt = (
+            f"用户要求生成 {total_lessons} 个教案，本次只需要生成第 {lesson_num} 个，"
+            f"输出且仅输出 1 个对象，其「课次」字段必须为 {lesson_num}。\n"
+            f"必须紧扣教学大纲，按章节顺序合理选择本课次的内容，不可编造。\n\n"
+            f"字段列表：\n{LESSON_FIELDS}\n\n"
+            f"教学大纲内容：\n{syllabus_content}\n"
+        )
+        last_exc: Optional[Exception] = None
+        for attempt in range(max_attempts):
+            try:
+                response_text = self.llm.generate_with_retry(
+                    system_prompt=self.system_prompt,
+                    user_prompt=user_prompt,
+                    json_output=True,
+                )
+                lessons_data = self._parse_json_response(response_text)
+                if lessons_data:
+                    return LessonPlan.from_dict(lessons_data[0])
+                logger.warning(
+                    "单课调用返回空 (课次 %d, 第 %d 次)", lesson_num, attempt + 1
+                )
+            except Exception as e:
+                last_exc = e
+                logger.warning(
+                    "单课调用异常 (课次 %d, 第 %d 次): %s",
+                    lesson_num, attempt + 1, e,
+                )
+
+        raise RuntimeError(
+            f"课次 {lesson_num} 经 {max_attempts} 次单课生成仍失败"
+        ) from last_exc
 
     def _read_syllabus(self, file_path: str) -> str:
         doc = Document(file_path)
