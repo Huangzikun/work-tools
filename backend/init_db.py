@@ -41,6 +41,7 @@ def ensure_tables_and_seed() -> None:
     from extensions import db
     # 显式 import 所有 Model，确保 db.create_all() 能感知到全部表
     from models import (  # noqa: F401
+        LessonPlanTask,
         ObeGradingJob,
         ObeGradingJobDetail,
         ObeStudent,

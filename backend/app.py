@@ -36,6 +36,15 @@ def create_app(config_class=Config):
     except Exception as exc:  # 启动期清理失败不应阻塞 app
         app.logger.exception("cleanup_zombie_grading failed: %s", exc)
 
+    # 清理教案生成僵尸任务
+    from services.lesson_plan_service import cleanup_zombie_tasks
+
+    try:
+        with app.app_context():
+            cleanup_zombie_tasks()
+    except Exception as exc:
+        app.logger.exception("cleanup_zombie_tasks failed: %s", exc)
+
     return app
 
 

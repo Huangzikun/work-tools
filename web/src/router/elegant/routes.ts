@@ -64,6 +64,35 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'lessonplan',
+    path: '/lessonplan',
+    component: 'layout.base',
+    meta: {
+      title: 'lessonplan',
+      i18nKey: 'route.lessonplan'
+    },
+    children: [
+      {
+        name: 'lessonplan_generate',
+        path: '/lessonplan/generate',
+        component: 'view.lessonplan_generate',
+        meta: {
+          title: 'lessonplan_generate',
+          i18nKey: 'route.lessonplan_generate'
+        }
+      },
+      {
+        name: 'lessonplan_tasks',
+        path: '/lessonplan/tasks',
+        component: 'view.lessonplan_tasks',
+        meta: {
+          title: 'lessonplan_tasks',
+          i18nKey: 'route.lessonplan_tasks'
+        }
+      }
+    ]
+  },
+  {
     name: 'login',
     path: '/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?',
     component: 'layout.blank$view.login',

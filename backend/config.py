@@ -63,3 +63,14 @@ class Config:
         "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
     )
     ARK_MODEL = os.getenv("ARK_MODEL", "doubao-seed-2-0-mini-260428")
+
+    # 教案生成存储根目录
+    LESSON_PLAN_STORAGE_ROOT = os.getenv(
+        "LESSON_PLAN_STORAGE_ROOT", str(BASE_DIR / "storage" / "lesson_plan")
+    )
+    LESSON_PLAN_TEMPLATE_PATH = os.path.join(
+        LESSON_PLAN_STORAGE_ROOT, "_templates", "通用模板.docx"
+    )
+    LESSON_PLAN_UPLOAD_MAX_BYTES = int(
+        os.getenv("LESSON_PLAN_UPLOAD_MAX_BYTES", str(20 * 1024 * 1024))
+    )

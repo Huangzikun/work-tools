@@ -58,6 +58,41 @@ USER_ROUTES = [
             },
         ],
     },
+    {
+        "name": "lessonplan",
+        "path": "/lessonplan",
+        "component": "layout.base",
+        "meta": {
+            "title": "教案工具",
+            "i18nKey": "route.lessonplan",
+            "icon": "mdi:school-outline",
+            "order": 11,
+        },
+        "children": [
+            {
+                "name": "lessonplan_generate",
+                "path": "/lessonplan/generate",
+                "component": "layout.base$view.lessonplan_generate",
+                "meta": {
+                    "title": "生成教案",
+                    "i18nKey": "route.lessonplan_generate",
+                    "icon": "mdi:file-document-edit-outline",
+                    "order": 1,
+                },
+            },
+            {
+                "name": "lessonplan_tasks",
+                "path": "/lessonplan/tasks",
+                "component": "layout.base$view.lessonplan_tasks",
+                "meta": {
+                    "title": "任务列表",
+                    "i18nKey": "route.lessonplan_tasks",
+                    "icon": "mdi:clipboard-list-outline",
+                    "order": 2,
+                },
+            },
+        ],
+    },
 ]
 
 CONSTANT_ROUTES = []

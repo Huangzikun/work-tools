@@ -22,6 +22,9 @@ declare module "@elegant-router/types" {
     "500": "/500";
     "home": "/home";
     "iframe-page": "/iframe-page/:url";
+    "lessonplan": "/lessonplan";
+    "lessonplan_generate": "/lessonplan/generate";
+    "lessonplan_tasks": "/lessonplan/tasks";
     "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?";
     "obe": "/obe";
     "obe_mkdir": "/obe/mkdir";
@@ -63,6 +66,7 @@ declare module "@elegant-router/types" {
     | "500"
     | "home"
     | "iframe-page"
+    | "lessonplan"
     | "login"
     | "obe"
   >;
@@ -87,6 +91,8 @@ declare module "@elegant-router/types" {
     | "iframe-page"
     | "login"
     | "home"
+    | "lessonplan_generate"
+    | "lessonplan_tasks"
     | "obe_mkdir"
     | "obe_task-detail"
     | "obe_tasks"
