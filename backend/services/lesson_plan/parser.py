@@ -137,6 +137,22 @@ class SyllabusParser:
 
         return all_lessons
 
+    # 核心字段：任一为空则教案无效（触发单课重试），根治空白教案
+    _REQUIRED_FIELDS = (
+        "授课内容", "课堂内容", "课堂导入", "课堂小结",
+        "课后作业", "教学方法与设计",
+    )
+    _MIN_CONTENT_LEN = 200  # 课堂内容最小字数，低于此视为内容过短
+
+    def _is_lesson_valid(self, lesson: LessonPlan) -> bool:
+        """核心字段非空且课堂内容达到最小长度，才算有效。"""
+        for field in self._REQUIRED_FIELDS:
+            if not (getattr(lesson, field, "") or "").strip():
+                return False
+        if len((lesson.课堂内容 or "").strip()) < self._MIN_CONTENT_LEN:
+            return False
+        return True
+
     def _generate_batch_with_fallback(
         self,
         syllabus_content: str,
@@ -155,6 +171,7 @@ class SyllabusParser:
         max_single_attempts = 2
 
         lessons: List[LessonPlan] = []
+        batch_ok = False
         for attempt in range(max_batch_attempts):
             lessons = self._call_batch_llm(
                 syllabus_content,
@@ -168,29 +185,43 @@ class SyllabusParser:
                     "整批成功 (第 %d 次): 返回 %d 个, 期望 %d 个",
                     attempt + 1, len(lessons), batch_size,
                 )
-                return lessons[:batch_size]
+                lessons = lessons[:batch_size]
+                batch_ok = True
+                break
             logger.warning(
                 "整批第 %d 次返回 %d 个, 期望 %d 个",
                 attempt + 1, len(lessons), batch_size,
             )
 
-        # 走单课兜底：保留已有前 N 个，对剩余位置单独生成
-        result = list(lessons)
-        missing_count = batch_size - len(result)
-        logger.warning(
-            "整批 %d 次仍缺 %d 个，进入单课兜底",
-            max_batch_attempts, missing_count,
-        )
-
-        for idx in range(len(result), batch_size):
-            expected_num = expected_numbers[idx]
-            single = self._call_single_lesson(
-                syllabus_content, expected_num, total_lessons, max_single_attempts
+        # 整批仍不足 → 单课兜底补齐缺失位置
+        if not batch_ok:
+            missing = batch_size - len(lessons)
+            logger.warning(
+                "整批 %d 次仍缺 %d 个，进入单课兜底",
+                max_batch_attempts, missing,
             )
-            result.append(single)
-            logger.info("单课兜底成功: 课次 %d", expected_num)
+            for idx in range(len(lessons), batch_size):
+                expected_num = expected_numbers[idx]
+                lessons.append(
+                    self._call_single_lesson(
+                        syllabus_content, expected_num, total_lessons, max_single_attempts
+                    )
+                )
+                logger.info("单课兜底成功: 课次 %d", expected_num)
 
-        return result
+        # 核心字段校验：内容为空/过短的课次走单课重试，根治空白教案
+        for idx in range(batch_size):
+            if not self._is_lesson_valid(lessons[idx]):
+                expected_num = expected_numbers[idx]
+                logger.warning(
+                    "课次 %d 核心字段为空或课堂内容过短（%d 字），单课重试",
+                    expected_num, len((lessons[idx].课堂内容 or "").strip()),
+                )
+                lessons[idx] = self._call_single_lesson(
+                    syllabus_content, expected_num, total_lessons, max_single_attempts
+                )
+
+        return lessons
 
     def _call_batch_llm(
         self,
@@ -268,15 +299,26 @@ class SyllabusParser:
         return "\n".join(parts)
 
     def _build_time_constraint(self) -> str:
-        """动态时间约束区块：按总课时÷教案数算每教案可用分钟，写入 user prompt。"""
+        """动态时间约束：算每教案可用分钟，并扣掉导入/小结得到课堂内容主体时间。"""
         total_hours_desc = f"{self.total_hours}" if self.total_hours else "未指定（按默认）"
+        import_minutes = 10
+        summary_minutes = 10
+        content_minutes = max(
+            self.per_lesson_minutes - import_minutes - summary_minutes, 0
+        )
         return (
             "\n本次时间分配要求：\n"
             f"- 本课程共 {total_hours_desc} 课时，分 {self.total_lessons} 次教案，"
-            f"每次教案约 {self.per_lesson_hours} 课时。\n"
-            f"- 每课时 40 分钟，故每次教案可用时间合计约 {self.per_lesson_minutes} 分钟。\n"
-            f"- 「课堂内容」各教学环节标注的分钟数之和应等于（或接近）{self.per_lesson_minutes} 分钟，"
-            "请在此额度内根据内容灵活分配各环节时间。\n"
+            f"每次教案约 {self.per_lesson_hours} 课时，合计可用约 {self.per_lesson_minutes} 分钟。\n"
+            f"- 时间拆分：课堂导入 {import_minutes} 分钟 + 课堂小结 {summary_minutes} 分钟，"
+            f"「课堂内容」主体可用约 {content_minutes} 分钟"
+            f"（= {self.per_lesson_minutes} − {import_minutes} − {summary_minutes}）。\n"
+            f"- 「课堂内容」字段内各教学环节标注的分钟数之和应等于（或接近）{content_minutes} 分钟；"
+            f"对应字段填：「课堂导入时间分配」={import_minutes} 分钟、"
+            f"「课堂小结时间分配」={summary_minutes} 分钟、"
+            f"「课堂内容时间分配」={content_minutes} 分钟。\n"
+            "- 课堂导入与课堂小结是独立字段（各不超过 10 分钟），「课堂内容」是扣除二者后的主体环节，"
+            "不要在「课堂内容」里再重复写\"导入\"\"小结\"环节。\n"
         )
 
     def _format_user_supplement(self) -> str:
