@@ -12,6 +12,7 @@
     POST   /api/obe/tasks/<taskId>/students/<studentPk>/retry           单学生重试
     GET    /api/obe/tasks/<taskId>/download/zip?dirType&experimentLabel  下载 ZIP
     GET    /api/obe/tasks/<taskId>/download/excel?dirType&experimentLabel&jobId  下载 Excel
+    GET    /api/obe/tasks/<taskId>/download/all                          整体打包下载整个任务（全部目录 + 成绩 Excel）
     DELETE /api/obe/tasks/<taskId>                                      删除任务
 """
 
@@ -24,7 +25,7 @@ from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Blueprint, current_app, g, make_response, request, send_file
+from flask import Blueprint, Response, current_app, g, make_response, request, send_file
 
 from extensions import db
 from models.obe import ObeGradingJob, ObeStudent, ObeTask
@@ -458,6 +459,108 @@ def _build_dir_type_zip(
 
     name_prefix = experiment_label or dir_type
     return buf.getvalue(), f"{name_prefix}.zip"
+
+
+def _task_zip_name(task: ObeTask) -> str:
+    return f"{task.class_name}《{task.course_name}》{task.teacher_name}.zip"
+
+
+def _task_has_content(task_id: int) -> bool:
+    """任务是否有可打包内容（root/ 或 excel/ 任一非空）。"""
+    root = root_dir(task_id)
+    excel = excel_dir(task_id)
+    has_root = root.exists() and any(root.iterdir())
+    has_excel = excel.exists() and any(excel.glob("*.xlsx"))
+    return has_root or has_excel
+
+
+def _stream_task_zip(root: Path, excel: Path):
+    """流式生成整个任务的 ZIP 字节块（生成器）。
+
+    内容：root/ 下全部目录（mkdir 创建的 OBE 结构 + 学生批改文件）+ excel/ 下全部成绩表。
+    arcname 相对 root/（不含 root 这一层），解压即得到原始 OBE 目录名；成绩 Excel 放 ZIP 顶层。
+
+    实现要点：zipfile 是 push 模式且中央目录在最后才写入，无法用纯协程流式，
+    因此用一个后台线程跑 zipfile、其 write 经 queue 转发给本生成器逐块 yield。
+    内存占用 ≈ queue maxsize × 块大小（数 MB 量级），不随包体线性增长。
+
+    重要：本生成器只接收 Path、不访问 current_app —— 生成器体在 WSGI 迭代时才执行，
+    彼时 Flask 的 app/request context 已被 pop。调用方须在视图里（仍有 context 时）
+    算好 root/excel 并完成 _task_has_content 校验后再传入。
+    """
+    import os
+    import queue
+    import threading
+
+    end = object()
+    q: "queue.Queue[object]" = queue.Queue(maxsize=64)
+
+    class _Sink:
+        def write(self, data):
+            q.put(data)
+            return len(data)  # Python 3.13+ zipfile 依赖 write 返回写入字节数（self.offset += n）
+
+        def flush(self):  # zipfile 不调用，仅为满足 file-like 协议
+            pass
+
+        def seekable(self):  # 告知不可随机定位 → zipfile 走流式（中央目录置末尾，不回写文件头）
+            return False
+
+    def _produce():
+        try:
+            with zipfile.ZipFile(_Sink(), "w", zipfile.ZIP_DEFLATED) as zf:
+                if root.exists():
+                    for dirpath, dirnames, filenames in os.walk(root):
+                        for d in dirnames:
+                            full = Path(dirpath) / d
+                            arcname = full.relative_to(root).as_posix() + "/"
+                            zf.writestr(arcname, b"")
+                        for fn in filenames:
+                            full_path = Path(dirpath) / fn
+                            arcname = full_path.relative_to(root).as_posix()
+                            zf.write(full_path, arcname)
+                if excel.exists():
+                    for xlsx in sorted(excel.glob("*.xlsx")):
+                        zf.write(xlsx, xlsx.name)
+        except Exception as exc:  # 生产端异常透传给消费生成器
+            q.put(exc)
+        finally:
+            q.put(end)
+
+    threading.Thread(target=_produce, daemon=True).start()
+
+    while True:
+        item = q.get()
+        if item is end:
+            break
+        if isinstance(item, Exception):
+            raise item
+        if item:
+            yield item
+
+
+@obe_bp.get("/tasks/<int:task_id>/download/all")
+@jwt_required
+def download_all(task_id: int):
+    task = _get_owned_task(task_id, g.current_user_id)
+    if task is None:
+        return fail("任务不存在或无权访问")
+
+    # 同步校验：空任务直接返回 JSON，避免响应头发出后无法改 status
+    if not _task_has_content(task_id):
+        return fail("任务目录为空，无可下载内容")
+
+    # 在视图里（仍有 app context）解析好 Path 再传给生成器——生成器体在 WSGI
+    # 迭代时执行，彼时 context 已 pop，不能在生成器内调 root_dir/excel_dir
+    root = root_dir(task_id)
+    excel = excel_dir(task_id)
+
+    # 流式响应：不设 Content-Length（打包时未知总大小），走 chunked 传输；
+    # 边打包边发送，后端内存不随包体线性增长
+    resp = Response(_stream_task_zip(root, excel), mimetype="application/zip")
+    resp.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(_task_zip_name(task))}"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
 
 
 @obe_bp.get("/tasks/<int:task_id>/download/excel")

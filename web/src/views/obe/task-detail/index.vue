@@ -25,6 +25,7 @@ import type { DataTableColumns, UploadFileInfo } from 'naive-ui';
 import {
   deleteObeTask,
   downloadObeExcel,
+  downloadObeTaskAll,
   downloadObeZip,
   fetchObeProgress,
   fetchObeTaskDetail,
@@ -409,6 +410,20 @@ async function handleDownloadZip() {
   }
 }
 
+const downloading = ref(false);
+
+async function handleDownloadAll() {
+  downloading.value = true;
+  try {
+    await downloadObeTaskAll(taskId.value);
+    window.$message?.success('已开始下载');
+  } catch (err) {
+    window.$message?.error(err instanceof Error ? err.message : '下载失败');
+  } finally {
+    downloading.value = false;
+  }
+}
+
 async function handleDownloadExcel() {
   if (!activeExperiment.value || activeExperiment.value === 'default') {
     window.$message?.error('请先选择一个有批改记录的实验');
@@ -515,6 +530,7 @@ const hasAmbiguousToResolve = computed(() =>
         </div>
         <NSpace>
           <NButton @click="router.push({ name: 'obe_tasks' })">返回列表</NButton>
+          <NButton type="primary" :loading="downloading" @click="handleDownloadAll">打包下载整个任务</NButton>
           <NButton type="error" tertiary @click="handleDelete">删除任务</NButton>
         </NSpace>
       </NSpace>
