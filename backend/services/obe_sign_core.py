@@ -29,6 +29,22 @@ from docx.oxml.ns import qn
 from docx.shared import Cm
 from docx.text.paragraph import Paragraph
 
+# PyMuPDF(fitz) 是否可用：缺失时批改会回退到关键字打钩方案（同一页叠加多个勾）。
+# 这里在模块加载时检测并告警，避免悄无声息退化——这正是「每页多个批改痕迹」bug 的根因。
+try:
+    import fitz  # noqa: F401  PyMuPDF，用于 PDF 反向定位实现「每页一个勾」
+    _FITZ_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _FITZ_AVAILABLE = False
+    import warnings
+
+    warnings.warn(
+        "PyMuPDF(fitz) 未安装：批改将回退到关键字打钩方案，会在同一页叠加多个勾。"
+        "请 `pip install PyMuPDF` 后重启服务。",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
 # 文件过期时间（豆包 Files API 要求 1-30 天）
 FILE_EXPIRE_DAYS = 5
 
@@ -568,11 +584,10 @@ def insert_review_to_middle_pages_by_pdf(
     last_page_keywords=LAST_PAGE_KEYWORDS,
 ) -> int:
     """PDF 反向定位方案：每页只锚定一个 ✓，避免 Word 渲染多个 anchor 错位。"""
-    try:
-        import fitz  # PyMuPDF
-    except ImportError:
-        print("[pdf] PyMuPDF 未安装，返回 -1 触发回退")
+    if not _FITZ_AVAILABLE:
+        print("[pdf] PyMuPDF 未安装，回退关键字方案（会在同一页叠加多个勾！请 pip install PyMuPDF）")
         return -1
+    import fitz  # PyMuPDF
 
     if not doc.sections:
         return 0
