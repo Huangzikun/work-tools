@@ -387,16 +387,89 @@ function stopProgressPolling() {
 
 onUnmounted(stopProgressPolling);
 
-// ============ 单学生重试 ============
-async function handleRetry(studentPk: number) {
-  window.$message?.info('正在重试...');
-  const { error } = await retryObeStudent(taskId.value, studentPk);
-  if (error) {
-    window.$message?.error(errMsg(error, '重试失败'));
-    return;
+// ============ 单学生批改（重试 / 上传后自动批改）============
+/** 乐观更新：立即把学生置为「批改中」并清空分数/评语/错误，让用户马上看到状态变化。
+ *  真实结果由 gradeOneStudent 的轮询拿到后端最终状态覆盖。 */
+function setStudentGrading(studentPk: number) {
+  for (const [dt, expMap] of Object.entries(studentsByDirExp.value)) {
+    for (const [exp, list] of Object.entries(expMap)) {
+      const idx = list.findIndex(s => s.id === studentPk);
+      if (idx < 0) continue;
+      const newList = list.slice();
+      newList[idx] = {
+        ...list[idx],
+        gradeStatus: 'grading',
+        lastScore: undefined,
+        lastComment: undefined,
+        lastGradeError: undefined
+      };
+      studentsByDirExp.value = {
+        ...studentsByDirExp.value,
+        [dt]: { ...expMap, [exp]: newList }
+      };
+      return;
+    }
   }
-  window.$message?.success('重试完成');
-  await loadDetail();
+}
+
+/** 用单学生操作返回的最新数据就地刷新本地列表（整体替换触发 activeStudents 重算）。 */
+function upsertStudent(updated: Api.Obe.Student) {
+  const dirMap = studentsByDirExp.value[updated.dirType];
+  const list = dirMap?.[updated.experimentLabel];
+  if (!list) return;
+  const idx = list.findIndex(s => s.id === updated.id);
+  if (idx < 0) return;
+  const newList = list.slice();
+  newList[idx] = updated;
+  studentsByDirExp.value = {
+    ...studentsByDirExp.value,
+    [updated.dirType]: { ...dirMap, [updated.experimentLabel]: newList }
+  };
+}
+
+function findStudentInState(studentPk: number): Api.Obe.Student | undefined {
+  for (const expMap of Object.values(studentsByDirExp.value)) {
+    for (const list of Object.values(expMap)) {
+      const s = list.find(x => x.id === studentPk);
+      if (s) return s;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 单学生批改流程：乐观置「批改中」+ 置空分数评语 → 后台发起批改 → 轮询直到完成自动更新。
+ *
+ * 后端 retry 是同步阻塞（含 LLM + LibreOffice，可能数十秒），而 axios 实例全局 timeout=10s，
+ * 所以不能 await retryObeStudent（必然超时）。改为：乐观更新 UI 后 fire-and-forget 发起请求，
+ * 用轮询 loadDetail 拉取真实状态，直到该学生脱离 grading（批改完成 / 失败）。
+ */
+function gradeOneStudent(studentPk: number) {
+  setStudentGrading(studentPk);
+
+  // fire-and-forget：10s 后 axios 会超时 abort，但后端仍在跑；超时错误忽略，靠轮询拿结果
+  retryObeStudent(taskId.value, studentPk).catch(() => {});
+
+  const intervalMs = 3000;
+  const maxRounds = 100; // 5 分钟超时保护
+  let rounds = 0;
+  const timer = window.setInterval(async () => {
+    rounds += 1;
+    await loadDetail();
+    const s = findStudentInState(studentPk);
+    const done = !s || s.gradeStatus !== 'grading' || rounds >= maxRounds;
+    if (!done) return;
+    window.clearInterval(timer);
+    if (s?.gradeStatus === 'graded') {
+      window.$message?.success(`${s.studentName} 批改完成：${s.lastScore} 分`);
+    } else if (s?.gradeStatus === 'failed') {
+      window.$message?.error(`${s.studentName} 批改失败：${s.lastGradeError || '未知错误'}`);
+    }
+  }, intervalMs);
+}
+
+function handleRetry(studentPk: number) {
+  gradeOneStudent(studentPk);
 }
 
 // ============ 单学生上传 / 下载 ============
@@ -436,10 +509,10 @@ async function submitUploadStudent() {
   uploadingStudent.value = true;
   try {
     const result = await uploadObeStudentFile(taskId.value, uploadStudentTarget.value.id, file);
-    const hint = result.resetPreviousGrading ? '，已重置批改状态（需重新批改）' : '';
-    window.$message?.success(`已为 ${result.student.studentName} 上传「${result.fileName}」${hint}`);
+    upsertStudent(result.student); // 先刷新为「已上传」（matched=true）
     uploadStudentModalVisible.value = false;
-    await loadDetail();
+    window.$message?.success(`已上传「${result.fileName}」，开始批改...`);
+    gradeOneStudent(result.student.id); // 上传后直接进入批改流程
   } catch (err) {
     window.$message?.error(err instanceof Error ? err.message : '上传失败');
   } finally {

@@ -61,7 +61,9 @@ export function fetchObeTasks(page = 1, size = 20) {
 export function fetchObeTaskDetail(taskId: number) {
   return request<Api.Obe.TaskDetail>({
     url: `/obe/tasks/${taskId}`,
-    method: 'get'
+    method: 'get',
+    // 加时间戳防缓存：单学生批改轮询时需要每次拿最新状态
+    params: { _t: Date.now() }
   });
 }
 

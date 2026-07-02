@@ -230,6 +230,11 @@ def _run_grading(
 
     for s in students:
         s.grade_status = "grading"
+        # 进入批改中：清空旧结果（批改中无有效分数/评语），前端轮询能拿到一致的「批改中、无分数」状态
+        s.last_score = None
+        s.last_comment = None
+        s.last_graded_file = None
+        s.last_grade_error = None
         db.session.commit()
 
         _update_progress(
@@ -540,6 +545,11 @@ def retry_student(
     sys_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
 
     student.grade_status = "grading"
+    # 进入批改中：清空旧结果（批改中无有效分数/评语）
+    student.last_score = None
+    student.last_comment = None
+    student.last_graded_file = None
+    student.last_grade_error = None
     db.session.commit()
 
     score, comment, graded_file = _grade_one_student(
