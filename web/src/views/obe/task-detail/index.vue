@@ -25,6 +25,7 @@ import type { DataTableColumns, UploadFileInfo } from 'naive-ui';
 import {
   deleteObeTask,
   downloadObeExcel,
+  downloadObeStudentFile,
   downloadObeTaskAll,
   downloadObeZip,
   fetchObeProgress,
@@ -33,6 +34,7 @@ import {
   resolveObeAmbiguous,
   retryObeStudent,
   startObeGrade,
+  uploadObeStudentFile,
   uploadObeStudentFiles
 } from '@/service/api/obe';
 
@@ -397,6 +399,54 @@ async function handleRetry(studentPk: number) {
   await loadDetail();
 }
 
+// ============ 单学生上传 / 下载 ============
+async function handleDownloadStudent(row: Api.Obe.Student) {
+  try {
+    await downloadObeStudentFile(taskId.value, row.id);
+    window.$message?.success('已开始下载');
+  } catch (err) {
+    window.$message?.error(err instanceof Error ? err.message : '下载失败');
+  }
+}
+
+const uploadStudentModalVisible = ref(false);
+const uploadStudentTarget = ref<Api.Obe.Student | null>(null);
+const uploadStudentFileList = ref<UploadFileInfo[]>([]);
+const uploadingStudent = ref(false);
+
+function openUploadStudentModal(row: Api.Obe.Student) {
+  uploadStudentTarget.value = row;
+  uploadStudentFileList.value = [];
+  uploadStudentModalVisible.value = true;
+}
+
+function onUploadStudentFileChange(options: { fileList: UploadFileInfo[] }) {
+  // max=1：始终只保留最新选择的那一个
+  uploadStudentFileList.value = options.fileList.slice(-1);
+}
+
+async function submitUploadStudent() {
+  if (!uploadStudentTarget.value) return;
+  const ready = uploadStudentFileList.value.filter(f => f.file);
+  if (ready.length === 0) {
+    window.$message?.warning('请先选择文件');
+    return;
+  }
+  const file = ready[0].file!;
+  uploadingStudent.value = true;
+  try {
+    const result = await uploadObeStudentFile(taskId.value, uploadStudentTarget.value.id, file);
+    const hint = result.resetPreviousGrading ? '，已重置批改状态（需重新批改）' : '';
+    window.$message?.success(`已为 ${result.student.studentName} 上传「${result.fileName}」${hint}`);
+    uploadStudentModalVisible.value = false;
+    await loadDetail();
+  } catch (err) {
+    window.$message?.error(err instanceof Error ? err.message : '上传失败');
+  } finally {
+    uploadingStudent.value = false;
+  }
+}
+
 // ============ 下载 ============
 async function handleDownloadZip() {
   if (!activeExperiment.value) {
@@ -484,11 +534,35 @@ const studentColumns = computed<DataTableColumns<Api.Obe.Student>>(() => [
   {
     title: '操作',
     key: 'actions',
-    width: 100,
+    width: 220,
     render: row =>
-      row.matched
-        ? h(NButton, { size: 'small', tertiary: true, onClick: () => handleRetry(row.id) }, { default: () => '重试' })
-        : null
+      h(
+        NSpace,
+        { size: 4, wrap: false },
+        {
+          default: () => [
+            row.matched
+              ? h(
+                  NButton,
+                  { size: 'small', tertiary: true, onClick: () => handleDownloadStudent(row) },
+                  { default: () => '下载' }
+                )
+              : null,
+            h(
+              NButton,
+              { size: 'small', tertiary: true, onClick: () => openUploadStudentModal(row) },
+              { default: () => '上传' }
+            ),
+            row.matched
+              ? h(
+                  NButton,
+                  { size: 'small', tertiary: true, onClick: () => handleRetry(row.id) },
+                  { default: () => '重试' }
+                )
+              : null
+          ]
+        }
+      )
   }
 ]);
 
@@ -715,6 +789,39 @@ const hasAmbiguousToResolve = computed(() =>
         <NSpace justify="end">
           <NButton @click="ambiguousModalVisible = false">取消</NButton>
           <NButton type="primary" @click="submitAmbiguous">提交</NButton>
+        </NSpace>
+      </template>
+    </NModal>
+
+    <!-- 单学生上传弹窗 -->
+    <NModal
+      v-model:show="uploadStudentModalVisible"
+      preset="card"
+      :title="`上传报告 - ${uploadStudentTarget?.studentName || ''}`"
+      style="width: 480px"
+      :mask-closable="false"
+    >
+      <NSpace vertical :size="12">
+        <NText depth="2">
+          将文件直接指派给该学生，无需文件名匹配。支持 .docx / .doc / .zip（zip 取内含主报告）。
+        </NText>
+        <NUpload
+          v-model:file-list="uploadStudentFileList"
+          :max="1"
+          accept=".doc,.docx,.zip"
+          :default-upload="false"
+          @change="onUploadStudentFileChange"
+        >
+          <NButton>选择文件</NButton>
+        </NUpload>
+        <NText v-if="uploadStudentTarget?.gradeStatus === 'graded'" type="warning">
+          该学生已批改，上传新文件会重置其批改状态（需重新批改）。
+        </NText>
+      </NSpace>
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="uploadStudentModalVisible = false">取消</NButton>
+          <NButton type="primary" :loading="uploadingStudent" @click="submitUploadStudent">确认上传</NButton>
         </NSpace>
       </template>
     </NModal>

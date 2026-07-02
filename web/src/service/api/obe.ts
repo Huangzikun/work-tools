@@ -299,3 +299,71 @@ export async function downloadObeTaskAll(taskId: number): Promise<void> {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ============ 单学生上传 / 下载 ============
+
+export interface ObeStudentUploadResult {
+  student: Api.Obe.Student;
+  fileName: string;
+  resetPreviousGrading: boolean;
+}
+
+/** 单学生上传：把一个文件直接指派给指定学生（无需文件名匹配）。 */
+export async function uploadObeStudentFile(
+  taskId: number,
+  studentPk: number,
+  file: File,
+  progress?: ObeUploadProgress
+): Promise<ObeStudentUploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  const token = localStg.get('token');
+  const resp = await axios.post<App.Service.Response<ObeStudentUploadResult>>(
+    `${baseURL}/obe/tasks/${taskId}/students/${studentPk}/upload`,
+    form,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      onUploadProgress: progress?.onUploadProgress
+    }
+  );
+
+  if (String(resp.data.code) !== import.meta.env.VITE_SERVICE_SUCCESS_CODE) {
+    throw new Error(resp.data.msg || '上传失败');
+  }
+  return resp.data.data;
+}
+
+/** 单学生下载：优先批改后文件，回退原始上传件。 */
+export async function downloadObeStudentFile(taskId: number, studentPk: number): Promise<void> {
+  const token = localStg.get('token');
+  const resp = await axios.get(`${baseURL}/obe/tasks/${taskId}/students/${studentPk}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    responseType: 'blob'
+  });
+
+  // 后端错误时可能返回 JSON
+  const ct = String(resp.headers['content-type'] ?? '');
+  if (ct.includes('application/json')) {
+    const text = await (resp.data as Blob).text();
+    try {
+      const json = JSON.parse(text) as { msg?: string };
+      throw new Error(json.msg || '下载失败');
+    } catch (err) {
+      if (err instanceof Error && err.message !== '下载失败') throw err;
+      throw new Error('下载失败');
+    }
+  }
+
+  const cd = String(resp.headers['content-disposition'] ?? '');
+  const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+  const filename = m ? decodeURIComponent(m[1]) : `student_${studentPk}.docx`;
+
+  const url = URL.createObjectURL(resp.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

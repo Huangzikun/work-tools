@@ -10,6 +10,8 @@
     POST   /api/obe/tasks/<taskId>/grade                                触发批改
     GET    /api/obe/tasks/<taskId>/progress?dirType&experimentLabel&jobId  批改进度
     POST   /api/obe/tasks/<taskId>/students/<studentPk>/retry           单学生重试
+    POST   /api/obe/tasks/<taskId>/students/<studentPk>/upload          单学生上传/替换报告
+    GET    /api/obe/tasks/<taskId>/students/<studentPk>/download        单学生下载报告（批改后优先，回退原始）
     GET    /api/obe/tasks/<taskId>/download/zip?dirType&experimentLabel  下载 ZIP
     GET    /api/obe/tasks/<taskId>/download/excel?dirType&experimentLabel&jobId  下载 Excel
     GET    /api/obe/tasks/<taskId>/download/all                          整体打包下载整个任务（全部目录 + 成绩 Excel）
@@ -40,6 +42,7 @@ from services.obe_grading import (
 )
 from services.obe_match import (
     ObeMatchError,
+    assign_file_to_student,
     match_uploads,
     resolve_ambiguous,
 )
@@ -397,6 +400,74 @@ def retry_student_endpoint(task_id: int, student_pk: int):
         return fail("重试失败")
 
     return success(result)
+
+
+@obe_bp.post("/tasks/<int:task_id>/students/<int:student_pk>/upload")
+@jwt_required
+def upload_student_file(task_id: int, student_pk: int):
+    task = _get_owned_task(task_id, g.current_user_id)
+    if task is None:
+        return fail("任务不存在或无权访问")
+
+    student = ObeStudent.query.filter_by(id=student_pk, task_id=task_id).first()
+    if student is None:
+        return fail("学生不存在")
+
+    files = request.files.getlist("file")
+    if not files or all(not f.filename for f in files):
+        return fail("未选择文件")
+    file_storage = files[0]
+
+    try:
+        result = assign_file_to_student(task_id, student, file_storage)
+    except ObeMatchError as exc:
+        return fail(exc.message)
+    except ObeStorageError as exc:
+        return fail(exc.message)
+    except Exception as exc:
+        current_app.logger.exception("upload student file failed: %s", exc)
+        return fail("上传失败")
+
+    return success(result)
+
+
+@obe_bp.get("/tasks/<int:task_id>/students/<int:student_pk>/download")
+@jwt_required
+def download_student_file(task_id: int, student_pk: int):
+    task = _get_owned_task(task_id, g.current_user_id)
+    if task is None:
+        return fail("任务不存在或无权访问")
+
+    student = ObeStudent.query.filter_by(id=student_pk, task_id=task_id).first()
+    if student is None:
+        return fail("学生不存在")
+
+    # 优先批改后文件，回退原始上传件
+    rel = None
+    is_graded = False
+    if student.last_graded_file:
+        rel = student.last_graded_file
+        is_graded = student.grade_status == "graded"
+    elif student.uploaded_file:
+        rel = student.uploaded_file
+
+    if not rel:
+        return fail("该学生暂无可下载的文件")
+
+    abs_path = (task_root(task_id) / rel).resolve()
+    base = task_root(task_id).resolve()
+    if abs_path != base and base not in abs_path.parents:
+        return fail("文件路径非法")
+    if not abs_path.exists():
+        return fail("文件不存在（可能已被移动或删除）")
+
+    ext = abs_path.suffix or ".docx"
+    suffix = "_批改" if is_graded else ""
+    filename = f"{student.student_id}{student.student_name}{suffix}{ext}"
+
+    resp = send_file(abs_path, as_attachment=True, download_name=filename)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
 
 
 # ============ 下载 ============

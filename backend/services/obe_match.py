@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import uuid
 from pathlib import Path
 from typing import List
@@ -440,3 +441,55 @@ def resolve_ambiguous(
 
     db.session.commit()
     return {"resolved": resolved, "failed": failed}
+
+
+def assign_file_to_student(task_id: int, student: ObeStudent, file_storage) -> dict:
+    """把单个上传文件直接指派给指定学生（无需文件名匹配）。
+
+    用于详情页「单学生上传」：老师已经明确知道这个文件属于谁，不必走批量匹配。
+    支持：
+    - .zip：解压到学生目录，取主 docx（复用 _save_inner_zip_to_student_dir + _pick_main_docx）
+    - .doc/.docx：复制到学生目录
+    若该学生之前已 graded，重置为 pending（文件已变，旧批改失效，需重新批改）。
+
+    返回 {student(to_dict), fileName, resetPreviousGrading}。
+    """
+    upload_root = uploads_dir(task_id, student.dir_type)
+    upload_root.mkdir(parents=True, exist_ok=True)
+
+    original_name = file_storage.filename or "upload.docx"
+    safe_name = _safe_segment(original_name)
+    uuid_prefix = uuid.uuid4().hex[:8]
+    target = upload_root / f"{uuid_prefix}_{safe_name}"
+    file_storage.save(target)
+
+    suffix_lower = target.suffix.lower()
+    if suffix_lower == ".zip":
+        extracted = _save_inner_zip_to_student_dir(target, student, task_id)
+        main_docx = _pick_main_docx(extracted)
+        if main_docx is None:
+            raise ObeMatchError("ZIP 内未找到 docx/doc 文件")
+        rel = _rel_to_task_root(main_docx, task_id)
+        saved_name = main_docx.name
+    elif suffix_lower in SUPPORTED_DOC_EXTS:
+        student_dir = root_dir(task_id) / student.student_dir_name
+        student_dir.mkdir(parents=True, exist_ok=True)
+        dest = student_dir / safe_name
+        if dest.exists():
+            dest = student_dir / f"{uuid_prefix}_{safe_name}"
+        shutil.copy(target, dest)
+        rel = _rel_to_task_root(dest, task_id)
+        saved_name = dest.name
+    else:
+        raise ObeMatchError(f"不支持的文件类型: {target.suffix or '(无扩展名)'}（仅支持 docx/doc/zip）")
+
+    reset = _reset_student_grading_state(student)
+    student.uploaded_file = rel
+    student.matched = True
+    db.session.commit()
+
+    return {
+        "student": student.to_dict(),
+        "fileName": saved_name,
+        "resetPreviousGrading": reset,
+    }
