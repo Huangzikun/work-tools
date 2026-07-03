@@ -230,6 +230,14 @@ python check_and_sign/test.py
 ./release.sh -h                       # 显示帮助
 ```
 
+**选项：**
+- `-k <密钥路径>`：指定 SSH 密钥（默认 `~/Plutus.pem`，可由 `SSH_KEY` 环境变量覆盖）
+- `-b <分支名>`：部署指定分支（先 `git fetch + pull`，再构建部署）
+- `-t <标签名>`：部署指定标签（detached HEAD），与 `-b` 互斥
+- `-h`：显示帮助
+
+> 脚本须在项目根目录执行（依赖 `./web`、`./backend`、`./migrations` 等相对路径）。脚本退出时会自动 `git checkout` 回原始分支/标签（`trap restore_branch EXIT`），故 `-b`/`-t` 切换的 HEAD 不会残留。
+
 #### 失败排查
 ```bash
 # 服务状态
