@@ -387,7 +387,7 @@ function stopProgressPolling() {
 
 onUnmounted(stopProgressPolling);
 
-// ============ 单学生批改（重试 / 上传后自动批改）============
+// ============ 单学生批改（上传后自动批改）============
 /** 乐观更新：立即把学生置为「批改中」并清空分数/评语/错误，让用户马上看到状态变化。
  *  真实结果由 gradeOneStudent 的轮询拿到后端最终状态覆盖。 */
 function setStudentGrading(studentPk: number) {
@@ -466,10 +466,6 @@ function gradeOneStudent(studentPk: number) {
       window.$message?.error(`${s.studentName} 批改失败：${s.lastGradeError || '未知错误'}`);
     }
   }, intervalMs);
-}
-
-function handleRetry(studentPk: number) {
-  gradeOneStudent(studentPk);
 }
 
 // ============ 单学生上传 / 下载 ============
@@ -629,8 +625,8 @@ const studentColumns = computed<DataTableColumns<Api.Obe.Student>>(() => [
             row.matched
               ? h(
                   NButton,
-                  { size: 'small', tertiary: true, onClick: () => handleRetry(row.id) },
-                  { default: () => '重试' }
+                  { size: 'small', tertiary: true, onClick: () => openUploadStudentModal(row) },
+                  { default: () => '重新批改' }
                 )
               : null
           ]
@@ -888,7 +884,7 @@ const hasAmbiguousToResolve = computed(() =>
           <NButton>选择文件</NButton>
         </NUpload>
         <NText v-if="uploadStudentTarget?.gradeStatus === 'graded'" type="warning">
-          该学生已批改，上传新文件会重置其批改状态（需重新批改）。
+          该学生已批改，上传新文件会覆盖旧文件并自动重新批改。
         </NText>
       </NSpace>
       <template #footer>
