@@ -595,8 +595,12 @@ def build_excel_summary(
     task_id: int,
     dir_type: str,
     experiment_label: str,
-    job_id: int,
+    job_id: Optional[int] = None,
 ) -> Path:
+    """生成成绩 Excel。每次用最新 ObeStudent 数据重新生成、覆盖固定文件名
+    `{exp}_成绩.xlsx`，并清理该 experiment 的历史 `{exp}_{jobId}_成绩.xlsx`（旧逻辑按 jobId
+    命名会累积多个）。job_id 仅作历史兼容，不参与文件名。
+    """
     rows = []
     students = (
         ObeStudent.query.filter_by(
@@ -624,9 +628,36 @@ def build_excel_summary(
     excel_root = excel_dir(task_id)
     excel_root.mkdir(parents=True, exist_ok=True)
     safe_exp = _safe_segment(experiment_label)
-    out_path = excel_root / f"{safe_exp}_{job_id}_成绩.xlsx"
+    # 清理该 experiment 的历史成绩 xlsx（旧 {exp}_{jobId}_成绩.xlsx 会随 job 累积），保证只保留一份
+    for pattern in (f"{safe_exp}_*_成绩.xlsx", f"{safe_exp}_成绩.xlsx"):
+        for old in excel_root.glob(pattern):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    out_path = excel_root / f"{safe_exp}_成绩.xlsx"
     df.to_excel(out_path, index=False)
     return out_path
+
+
+def refresh_all_excel(task_id: int) -> None:
+    """重新生成该任务所有 (dir_type, experiment_label) 的最新成绩 xlsx。
+
+    用于整体打包下载前，确保压缩包里的成绩表与系统最新一致，并清掉历史 job 残留。
+    """
+    rows = (
+        db.session.query(ObeStudent.dir_type, ObeStudent.experiment_label)
+        .filter(ObeStudent.task_id == task_id)
+        .distinct()
+        .all()
+    )
+    for dir_type, exp_label in rows:
+        if not exp_label or exp_label == "default":
+            continue
+        try:
+            build_excel_summary(task_id, dir_type, exp_label)
+        except Exception as exc:
+            current_app.logger.exception("refresh excel %s/%s failed: %s", dir_type, exp_label, exc)
 
 
 def retry_student(

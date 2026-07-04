@@ -39,6 +39,7 @@ from services.obe_grading import (
     get_rubric,
     has_running_job,
     list_running_experiments,
+    refresh_all_excel,
     request_cancel,
     retry_student,
     start_grading_job,
@@ -737,6 +738,12 @@ def download_all(task_id: int):
     if not _task_has_content(task_id):
         return fail("任务目录为空，无可下载内容")
 
+    # 打包前先用最新数据重生成所有成绩 xlsx（清理历史 job 残留 + 同步 retry 后的成绩）
+    try:
+        refresh_all_excel(task_id)
+    except Exception as exc:
+        current_app.logger.exception("refresh all excel failed: %s", exc)
+
     # 在视图里（仍有 app context）解析好 Path 再传给生成器——生成器体在 WSGI
     # 迭代时执行，彼时 context 已 pop，不能在生成器内调 root_dir/excel_dir
     root = root_dir(task_id)
@@ -782,13 +789,12 @@ def download_excel(task_id: int):
             return fail("该实验尚无批改记录")
         job_id = job.id
 
-    excel_path = excel_dir(task_id) / f"{_safe_segment(experiment_label)}_{job_id}_成绩.xlsx"
-    if not excel_path.exists():
-        try:
-            excel_path = build_excel_summary(task_id, dir_type, experiment_label, job_id)
-        except Exception as exc:
-            current_app.logger.exception("excel generate failed: %s", exc)
-            return fail("生成 Excel 失败")
+    # 总是用最新学生数据重新生成（retry 改成绩后旧 xlsx 会与系统不一致）
+    try:
+        excel_path = build_excel_summary(task_id, dir_type, experiment_label, job_id)
+    except Exception as exc:
+        current_app.logger.exception("excel generate failed: %s", exc)
+        return fail("生成 Excel 失败")
 
     download_name = f"{experiment_label}_成绩.xlsx"
     return send_file(
