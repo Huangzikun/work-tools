@@ -34,6 +34,17 @@ from docx.shared import Cm
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+# 容忍 docx 内部成员的 CRC 不匹配（学生上传的 docx 常有图片 CRC 损坏，LibreOffice 也打不开；
+# 之前测试 convert-to docx/pdf/odt 全部 "source file could not be loaded"）。
+# 跳过 CRC raise 后 python-docx 能读出文字/表格并保留原始图片数据。对正常文件无副作用。
+def _zipextfile_update_crc_lenient(self, newdata):
+    if self._expected_crc is None:
+        return
+    self._running_crc = zipfile.crc32(newdata, self._running_crc)
+
+
+zipfile.ZipExtFile._update_crc = _zipextfile_update_crc_lenient
+
 # PyMuPDF(fitz) 是否可用：缺失时批改会回退到关键字打钩方案（同一页叠加多个勾）。
 # 这里在模块加载时检测并告警，避免悄无声息退化——这正是「每页多个批改痕迹」bug 的根因。
 try:
@@ -1494,6 +1505,66 @@ def _snap_to_score_level(raw: int, levels: tuple[int, ...] = SCORE_LEVELS) -> in
     return min(levels, key=lambda x: (abs(x - raw), -x))
 
 
+def _try_open_docx(path: str) -> bool:
+    """python-docx 能否解析该文件（触发 body 解析）。
+
+    依赖模块顶部的 zipfile CRC 宽容补丁——CRC 不匹配的成员（如损坏图片）不会抛 BadZipFile。
+    """
+    try:
+        Document(path).element.body
+        return True
+    except Exception:
+        return False
+
+
+def _libreoffice_repair_docx(docx_path: str, lo_profile_dir: Optional[str] = None) -> bool:
+    """LibreOffice 重转 docx 标准化（按内容识别格式、容错强）。成功覆盖原文件。
+
+    用于 python-docx 仍读不了的病态 docx（如 relationship target 为 NULL 等非 CRC 问题，
+    这类 LibreOffice 能修；CRC 损坏 LibreOffice 也打不开，靠顶部补丁直接读）。
+    """
+    tmp_dir = tempfile.mkdtemp(prefix="obe_repair_")
+    try:
+        cmd = _build_libreoffice_cmd(
+            [
+                "libreoffice",
+                "--headless",
+                "--convert-to",
+                "docx",
+                "--outdir",
+                tmp_dir,
+                docx_path,
+            ],
+            lo_profile_dir,
+        )
+        subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
+        )
+        repaired = os.path.join(tmp_dir, os.path.basename(docx_path))
+        if not os.path.exists(repaired) or not _try_open_docx(repaired):
+            return False
+        shutil.move(repaired, docx_path)
+        print("[ensure_docx] LibreOffice 修复成功，已覆盖原文件")
+        return True
+    except Exception as e:
+        print(f"[ensure_docx] LibreOffice 修复异常: {e}")
+        return False
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _ensure_docx_readable(docx_path: str, lo_profile_dir: Optional[str] = None) -> bool:
+    """确保 docx 可被 python-docx 打开。损坏则修复并覆盖原文件。
+
+    依赖模块顶部的 zipfile CRC 宽容补丁：图片 CRC 损坏时直接读、保留原图（不替换占位）。
+    补丁救不了的（relationship NULL 等非 CRC 病态）再走 LibreOffice 重转标准化。
+    """
+    if _try_open_docx(docx_path):
+        return True
+    print(f"[ensure_docx] python-docx 打开失败，尝试 LibreOffice 标准化修复")
+    return _libreoffice_repair_docx(docx_path, lo_profile_dir)
+
+
 def grade_student_docx_v2(
     docx_path: str,
     teacher_prompt: str,
@@ -1534,6 +1605,8 @@ def grade_student_docx_v2(
         levels = parse_score_levels(teacher_prompt)
         if levels is None and score_levels:
             levels = tuple(score_levels)
+        if levels is None:
+            levels = SCORE_LEVELS
 
         # 视觉采样：始终尝试转 PDF 渲染关键页（用户要求"始终加 PDF 视觉"）
         pdf_path = docx_to_pdf(docx_path, lo_profile_dir)
@@ -1615,6 +1688,9 @@ def grade_student_docx(
         if converted:
             # 原地 .doc → .docx 转换并删除原文件
             docx_path = converted
+
+    # 确保是可读的 docx：不相信后缀，损坏则用 LibreOffice 重转修复（覆盖原文件）
+    _ensure_docx_readable(docx_path, lo_profile_dir)
 
     score, comment = grade_student_docx_v2(
         docx_path,
