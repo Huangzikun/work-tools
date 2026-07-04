@@ -9,6 +9,7 @@
     POST   /api/obe/tasks/<taskId>/upload/resolve                       解决 ambiguous
     POST   /api/obe/tasks/<taskId>/grade                                触发批改
     GET    /api/obe/tasks/<taskId>/progress?dirType&experimentLabel&jobId  批改进度
+    POST   /api/obe/tasks/<taskId>/jobs/<jobId>/cancel                  取消批改任务（协作式，跑完当前学生后停）
     POST   /api/obe/tasks/<taskId>/students/<studentPk>/retry           单学生重试
     POST   /api/obe/tasks/<taskId>/students/<studentPk>/upload          单学生上传/替换报告
     GET    /api/obe/tasks/<taskId>/students/<studentPk>/download        单学生下载报告（批改后优先，回退原始）
@@ -35,10 +36,13 @@ from services.obe_grading import (
     ObeGradingError,
     build_excel_summary,
     get_progress,
+    get_rubric,
     has_running_job,
     list_running_experiments,
+    request_cancel,
     retry_student,
     start_grading_job,
+    upsert_rubric,
 )
 from services.obe_match import (
     ObeMatchError,
@@ -297,6 +301,66 @@ def upload_resolve(task_id: int):
 # ============ 触发批改 ============
 
 
+@obe_bp.get("/rubric")
+@jwt_required
+def get_rubric_handler():
+    """按课程载入当前教师最近一次的评分标准。"""
+    course_name = (request.args.get("courseName") or "").strip()
+    if not course_name:
+        return fail("courseName 必填")
+    rec = get_rubric(g.current_user_id, course_name)
+    return success(rec.to_dict() if rec else None)
+
+
+@obe_bp.post("/rubric")
+@jwt_required
+def save_rubric_handler():
+    """显式保存评分标准（按 user_id+course_name upsert）。grade 时也会自动 upsert。"""
+    data = request.get_json(silent=True) or {}
+    course_name = (data.get("courseName") or "").strip()
+    if not course_name:
+        return fail("courseName 必填")
+    dimensions = []
+    for d in data.get("dimensions") or []:
+        name = (d.get("name") or "").strip()
+        try:
+            ms = int(d.get("max_score", 0))
+        except (TypeError, ValueError):
+            ms = 0
+        if not name or ms <= 0:
+            continue
+        dimensions.append(
+            {"name": name, "max_score": ms, "criteria": (d.get("criteria") or "").strip()}
+        )
+    free_text = (data.get("freeText") or "").strip()
+    score_levels = data.get("scoreLevels")
+    if score_levels:
+        try:
+            score_levels = [int(x) for x in score_levels]
+        except (TypeError, ValueError):
+            score_levels = None
+    rec = upsert_rubric(g.current_user_id, course_name, dimensions, free_text, score_levels)
+    return success(rec.to_dict())
+
+
+@obe_bp.post("/rubric/generate")
+@jwt_required
+def generate_rubric_handler():
+    """AI 根据教师提供的实验内容生成评分标准（积极评分 + 严谨扣分）。"""
+    data = request.get_json(silent=True) or {}
+    content = (data.get("experimentContent") or "").strip()
+    if len(content) < 10:
+        return fail("请提供实验内容（至少 10 字）")
+    try:
+        from services.obe_sign_core import generate_rubric
+
+        result = generate_rubric(content)
+    except Exception as exc:
+        current_app.logger.exception("generate_rubric failed: %s", exc)
+        return fail("生成评分标准失败")
+    return success(result)
+
+
 @obe_bp.post("/tasks/<int:task_id>/grade")
 @jwt_required
 def grade_task(task_id: int):
@@ -314,6 +378,25 @@ def grade_task(task_id: int):
     skip_graded_raw = (request.form.get("skipGraded") or "true").strip().lower()
     skip_graded = skip_graded_raw not in ("false", "0", "no", "off")
 
+    # 教师结构化评分维度与档位（可选，完全由教师控制评分标准）
+    rubric_dimensions = None
+    rubric_dims_raw = (request.form.get("rubricDimensions") or "").strip()
+    if rubric_dims_raw:
+        try:
+            parsed = json.loads(rubric_dims_raw)
+            if not isinstance(parsed, list):
+                raise ValueError
+            rubric_dimensions = parsed
+        except (ValueError, TypeError):
+            return fail("rubricDimensions 必须是 JSON 数组")
+    score_levels = None
+    score_levels_raw = (request.form.get("scoreLevels") or "").strip()
+    if score_levels_raw:
+        try:
+            score_levels = [int(x) for x in json.loads(score_levels_raw)]
+        except (ValueError, TypeError):
+            return fail("scoreLevels 必须是数字数组")
+
     if not dir_type:
         return fail("dirType 必填")
     if not experiment_label:
@@ -322,8 +405,9 @@ def grade_task(task_id: int):
         return fail("teacherName 必填")
     if not sign_date:
         return fail("signDate 必填")
-    if not teacher_prompt:
-        return fail("teacherPrompt 必填")
+    # 评分标准放宽：自由文本或结构化维度至少一个非空
+    if not teacher_prompt and not rubric_dimensions:
+        return fail("评分标准（总体要求或评分维度）至少填一项")
 
     if "signPicture" not in request.files:
         return fail("签名图片必填")
@@ -343,7 +427,21 @@ def grade_task(task_id: int):
             teacher_prompt=teacher_prompt,
             system_prompt=system_prompt,
             skip_graded=skip_graded,
+            rubric_dimensions=rubric_dimensions,
+            score_levels=score_levels,
         )
+        # 自动按课程保存评分标准，下次批改同课程一键载入
+        if rubric_dimensions:
+            try:
+                upsert_rubric(
+                    g.current_user_id,
+                    task.course_name,
+                    rubric_dimensions,
+                    teacher_prompt,
+                    score_levels,
+                )
+            except Exception as exc:
+                current_app.logger.exception("upsert_rubric failed: %s", exc)
     except ObeGradingError as exc:
         return fail(exc.message)
     except Exception as exc:
@@ -380,6 +478,24 @@ def grade_progress(task_id: int):
         return fail("查询进度失败")
 
     return success(progress)
+
+
+@obe_bp.post("/tasks/<int:task_id>/jobs/<int:job_id>/cancel")
+@jwt_required
+def cancel_grade_job(task_id: int, job_id: int):
+    task = _get_owned_task(task_id, g.current_user_id)
+    if task is None:
+        return fail("任务不存在或无权访问")
+
+    try:
+        result = request_cancel(task_id, job_id)
+    except ObeGradingError as exc:
+        return fail(exc.message)
+    except Exception as exc:
+        current_app.logger.exception("cancel failed: %s", exc)
+        return fail("取消失败")
+
+    return success(result)
 
 
 @obe_bp.post("/tasks/<int:task_id>/students/<int:student_pk>/retry")

@@ -172,6 +172,12 @@ class ObeGradingJob(db.Model):
     sign_date = db.Column(db.String(32), nullable=False, comment="签名日期字符串")
     sign_picture_path = db.Column(db.String(512), nullable=False, comment="签名图相对路径")
     teacher_prompt = db.Column(db.Text, nullable=False, comment="教师要求文本")
+    rubric_dimensions = db.Column(
+        db.JSON, nullable=True, comment="本次批改用的结构化维度；null=旧 job 或未传"
+    )
+    score_levels = db.Column(
+        db.JSON, nullable=True, comment="本次批改用的档位数组；null=默认七档"
+    )
     status = db.Column(
         db.String(16),
         nullable=False,
@@ -206,6 +212,8 @@ class ObeGradingJob(db.Model):
             "signDate": self.sign_date,
             "signPicturePath": self.sign_picture_path,
             "teacherPrompt": self.teacher_prompt,
+            "rubricDimensions": self.rubric_dimensions,
+            "scoreLevels": self.score_levels,
             "status": self.status,
             "total": self.total,
             "graded": self.graded,
@@ -240,3 +248,38 @@ class ObeGradingJobDetail(db.Model):
     error_msg = db.Column(db.Text)
     graded_file = db.Column(db.String(512))
     finished_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ObeGradingRubric(db.Model):
+    """按 (user_id, course_name) 保存教师最近一次评分标准，下次批改同课程一键载入。"""
+
+    __tablename__ = "obe_grading_rubric"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.String(64), nullable=False, comment="创建者 sys_user.user_id")
+    course_name = db.Column(db.String(128), nullable=False, comment="课程名（与 ObeTask.course_name 对齐）")
+    dimensions = db.Column(
+        db.JSON, nullable=False, default=list, comment="维度数组 [{name,max_score,criteria}, ...]"
+    )
+    free_text = db.Column(
+        db.Text, nullable=False, default="", comment="总体要求/评语风格/档位说明"
+    )
+    score_levels = db.Column(
+        db.JSON, nullable=True, comment="教师自定义档位如[90,80,70]；null=默认七档"
+    )
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "course_name", name="uq_obe_rubric_user_course"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "courseName": self.course_name,
+            "dimensions": self.dimensions or [],
+            "freeText": self.free_text or "",
+            "scoreLevels": self.score_levels,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+        }

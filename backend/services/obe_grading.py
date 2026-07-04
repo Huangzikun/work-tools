@@ -45,13 +45,15 @@ class ObeGradingError(Exception):
 _JOB_PROGRESS: dict[int, dict] = {}
 _PROGRESS_LOCK = threading.Lock()
 _GRADED_WORKERS: dict[int, threading.Thread] = {}
+# 协作式取消标志：request_cancel 置位，worker 循环顶部检查
+_CANCEL_FLAGS: dict[int, threading.Event] = {}
 
 
 def _update_progress(job_id: int, **fields) -> None:
     with _PROGRESS_LOCK:
         prog = _JOB_PROGRESS.setdefault(
             job_id,
-            {"total": 0, "graded": 0, "failed": 0, "currentStudent": None},
+            {"total": 0, "graded": 0, "failed": 0, "currentStudent": None, "status": "running"},
         )
         prog.update(fields)
         prog["lastUpdate"] = datetime.utcnow().isoformat()
@@ -60,6 +62,11 @@ def _update_progress(job_id: int, **fields) -> None:
 def _clear_progress(job_id: int) -> None:
     with _PROGRESS_LOCK:
         _JOB_PROGRESS.pop(job_id, None)
+
+
+def _is_cancelled(job_id: int) -> bool:
+    flag = _CANCEL_FLAGS.get(job_id)
+    return bool(flag and flag.is_set())
 
 
 def _make_llm_client():
@@ -101,6 +108,8 @@ def start_grading_job(
     teacher_prompt: str,
     system_prompt: Optional[str] = None,
     skip_graded: bool = True,
+    rubric_dimensions: Optional[list] = None,
+    score_levels: Optional[list] = None,
 ) -> int:
     """创建 ObeGradingJob 并启动后台 worker。返回 job_id。
 
@@ -145,6 +154,8 @@ def start_grading_job(
         sign_date=sign_date,
         sign_picture_path=sign_picture_rel,
         teacher_prompt=teacher_prompt,
+        rubric_dimensions=rubric_dimensions,
+        score_levels=score_levels,
         status="running",
         total=matched_count,
         graded=0,
@@ -158,7 +169,9 @@ def start_grading_job(
     db.session.commit()
 
     job_id = job.id
-    _update_progress(job_id, total=matched_count, graded=0, failed=0, currentStudent=None)
+    _update_progress(
+        job_id, total=matched_count, graded=0, failed=0, currentStudent=None, status="running"
+    )
 
     app = current_app._get_current_object()
     sys_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -167,7 +180,7 @@ def start_grading_job(
         with app.app_context():
             try:
                 _run_grading(
-                    task_id, job_id, dir_type, experiment_label, sys_prompt, teacher_prompt, skip_graded
+                    task_id, job_id, dir_type, experiment_label, sys_prompt, teacher_prompt, skip_graded, rubric_dimensions, score_levels
                 )
             except Exception as exc:
                 app.logger.exception("grading job %s failed", job_id)
@@ -176,6 +189,7 @@ def start_grading_job(
                 db.session.remove()
                 _clear_progress(job_id)
                 _GRADED_WORKERS.pop(job_id, None)
+                _CANCEL_FLAGS.pop(job_id, None)
 
     t = threading.Thread(target=worker, daemon=True, name=f"grade-{job_id}")
     _GRADED_WORKERS[job_id] = t
@@ -192,6 +206,8 @@ def _run_grading(
     system_prompt: str,
     teacher_prompt: str,
     skip_graded: bool = True,
+    rubric_dimensions: Optional[list] = None,
+    score_levels: Optional[list] = None,
 ) -> None:
     job = ObeGradingJob.query.get(job_id)
     if job is None:
@@ -229,6 +245,9 @@ def _run_grading(
     failed = 0
 
     for s in students:
+        # 协作式取消：循环顶部检查标志位，跑完上一份后立即退出（当前那份会跑完）
+        if _is_cancelled(job_id):
+            break
         s.grade_status = "grading"
         # 进入批改中：清空旧结果（批改中无有效分数/评语），前端轮询能拿到一致的「批改中、无分数」状态
         s.last_score = None
@@ -252,6 +271,8 @@ def _run_grading(
                 lo_profile_dir=lo_profile_dir,
                 system_prompt=system_prompt,
                 teacher_prompt=teacher_prompt,
+                rubric_dimensions=rubric_dimensions,
+                score_levels=score_levels,
             )
 
             if score > 0:
@@ -331,10 +352,32 @@ def _run_grading(
                     f"[{datetime.utcnow().isoformat()}] {s.student_id} EXCEPTION: {e}\n",
                 )
 
-    job.status = "completed"
+    if _is_cancelled(job_id):
+        job.status = "cancelled"
+        job.error_summary = "用户取消"
+    else:
+        job.status = "completed"
     job.finished_at = datetime.utcnow()
+    # 保险：把可能的 grading 残留重置为 pending（取消后可继续批改）。
+    # 正常 completed 时无 grading 残留，此 update 命中 0 行，无副作用。
+    ObeStudent.query.filter_by(
+        task_id=task_id,
+        dir_type=dir_type,
+        experiment_label=experiment_label,
+        grade_status="grading",
+    ).update(
+        {"grade_status": "pending", "last_grade_error": "批改已取消"},
+        synchronize_session=False,
+    )
     ObeTask.query.filter_by(id=task_id).update({"status": "graded"})
     db.session.commit()
+
+    # 把最终状态同步到内存进度缓存：取消场景下，worker 跑完当前学生后才真正停，
+    # 此时 graded/failed 才是最终值。前端轮询到此（或随后 DB fallback）才停止，
+    # 避免提前停止导致进度数字少 1。随后 worker finally 会 _clear_progress 清掉缓存。
+    _update_progress(
+        job_id, status=job.status, graded=graded, failed=failed, currentStudent=None
+    )
 
     try:
         excel_path = build_excel_summary(task_id, dir_type, experiment_label, job_id)
@@ -361,6 +404,8 @@ def _grade_one_student(
     lo_profile_dir: str,
     system_prompt: str,
     teacher_prompt: str,
+    rubric_dimensions: Optional[list] = None,
+    score_levels: Optional[list] = None,
 ) -> tuple[int, Optional[str], Optional[str]]:
     if not student.uploaded_file:
         return 0, None, None
@@ -378,6 +423,8 @@ def _grade_one_student(
         llm_client=llm_client,
         sign_ctx=sign_ctx,
         lo_profile_dir=lo_profile_dir,
+        rubric_dimensions=rubric_dimensions,
+        score_levels=score_levels,
     )
     return score, comment, graded_file
 
@@ -408,6 +455,32 @@ def _mark_job_failed(
         db.session.commit()
     except Exception:
         db.session.rollback()
+
+
+def request_cancel(task_id: int, job_id: int) -> dict:
+    """请求取消正在运行的批改 job。
+
+    协作式取消：只置标志位 + 更新内存进度状态；DB job.status 由 worker 在退出时
+    统一写入，避免与 worker 竞争。worker 跑完当前学生后会在循环顶部检查到标志位并退出，
+    所以取消不会立即生效（最多等一份批改完成，约 10-30s）。
+    """
+    job = ObeGradingJob.query.get(job_id)
+    if job is None or job.task_id != task_id:
+        raise ObeGradingError("批改任务不存在")
+    if job.status != "running":
+        raise ObeGradingError(f"任务当前状态为 {job.status}，无法取消")
+
+    _CANCEL_FLAGS.setdefault(job_id, threading.Event()).set()
+    # 注意：此处不把 progress.status 改成 cancelled。worker 是协作式取消，要跑完当前
+    # 学生才真正停。若提前把 status 置为 cancelled，前端轮询会立即停止，丢失「当前学生」
+    # 跑完后的 graded+1，导致显示的「已批改 x/y」比实际少 1。status 仍保持 running，
+    # 由 worker 结束时统一写最终状态（cancelled/completed）。
+    write_job_log(
+        task_id,
+        job_id,
+        f"[{datetime.utcnow().isoformat()}] cancel requested by user\n",
+    )
+    return {"jobId": job_id, "status": "cancelling"}
 
 
 def get_progress(
@@ -466,6 +539,56 @@ def cleanup_zombie_grading() -> None:
     if running_jobs:
         db.session.commit()
         print(f"[cleanup] 清理 {len(running_jobs)} 个僵尸 job")
+
+
+def ensure_obe_rubric_schema() -> None:
+    """幂等：建 obe_grading_rubric 表 + 给 obe_grading_job 加列。
+
+    项目无 alembic（靠 db.create_all()），但 create_all 不会改已存在表，
+    故新表用 __table__.create(checkfirst=True)，加列用 inspect 检测后 ALTER。
+    开发/生产启动自动跑，失败不阻塞 app。
+    """
+    from sqlalchemy import inspect, text
+
+    from models.obe import ObeGradingRubric
+
+    ObeGradingRubric.__table__.create(db.engine, checkfirst=True)
+
+    insp = inspect(db.engine)
+    cols = {c["name"] for c in insp.get_columns("obe_grading_job")}
+    with db.engine.begin() as conn:
+        if "rubric_dimensions" not in cols:
+            conn.execute(text("ALTER TABLE obe_grading_job ADD COLUMN rubric_dimensions JSON NULL"))
+        if "score_levels" not in cols:
+            conn.execute(text("ALTER TABLE obe_grading_job ADD COLUMN score_levels JSON NULL"))
+
+
+def upsert_rubric(
+    user_id: str,
+    course_name: str,
+    dimensions: list,
+    free_text: str,
+    score_levels: Optional[list] = None,
+):
+    """按 (user_id, course_name) upsert 评分标准，返回 ObeGradingRubric 记录。"""
+    from models.obe import ObeGradingRubric
+
+    rec = ObeGradingRubric.query.filter_by(user_id=user_id, course_name=course_name).first()
+    if rec is None:
+        rec = ObeGradingRubric(user_id=user_id, course_name=course_name)
+        db.session.add(rec)
+    rec.dimensions = dimensions
+    rec.free_text = free_text
+    rec.score_levels = score_levels
+    db.session.commit()
+    return rec
+
+
+def get_rubric(user_id: str, course_name: str):
+    """读取该教师该课程的最近评分标准，无则返回 None。"""
+    from models.obe import ObeGradingRubric
+
+    return ObeGradingRubric.query.filter_by(user_id=user_id, course_name=course_name).first()
 
 
 def build_excel_summary(
@@ -560,6 +683,8 @@ def retry_student(
         lo_profile_dir=lo_profile_dir,
         system_prompt=sys_prompt,
         teacher_prompt=job.teacher_prompt,
+        rubric_dimensions=job.rubric_dimensions,
+        score_levels=job.score_levels,
     )
 
     if score > 0:

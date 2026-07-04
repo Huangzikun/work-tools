@@ -144,6 +144,17 @@ export async function startObeGrade(
   form.append('signDate', params.signDate);
   form.append('teacherPrompt', params.teacherPrompt);
   if (params.systemPrompt) form.append('systemPrompt', params.systemPrompt);
+  if (params.rubricDimensions && params.rubricDimensions.length) {
+    form.append(
+      'rubricDimensions',
+      JSON.stringify(
+        params.rubricDimensions.map(d => ({ name: d.name, max_score: d.maxScore, criteria: d.criteria }))
+      )
+    );
+  }
+  if (params.scoreLevels && params.scoreLevels.length) {
+    form.append('scoreLevels', JSON.stringify(params.scoreLevels));
+  }
   form.append('signPicture', params.signPicture);
   form.append('skipGraded', params.skipGraded === false ? 'false' : 'true');
 
@@ -182,6 +193,39 @@ export function fetchObeProgress(
 export function retryObeStudent(taskId: number, studentPk: number) {
   return request<Api.Obe.Student>({
     url: `/obe/tasks/${taskId}/students/${studentPk}/retry`,
+    method: 'post'
+  });
+}
+
+// ============ 评分标准（按课程保存/载入） ============
+
+export function fetchObeRubric(courseName: string) {
+  return request<Api.Obe.RubricSnapshot | null>({
+    url: '/obe/rubric',
+    method: 'get',
+    params: { courseName }
+  });
+}
+
+export function saveObeRubric(payload: {
+  courseName: string;
+  dimensions: Api.Obe.RubricDimension[];
+  freeText: string;
+  scoreLevels?: number[] | null;
+}) {
+  return request<Api.Obe.RubricSnapshot>({ url: '/obe/rubric', method: 'post', data: payload });
+}
+
+export function generateObeRubric(experimentContent: string) {
+  return request<{
+    dimensions: Array<{ name: string; max_score: number; criteria: string }>;
+    freeText: string;
+  }>({ url: '/obe/rubric/generate', method: 'post', data: { experimentContent } });
+}
+
+export function cancelObeGrade(taskId: number, jobId: number) {
+  return request<{ jobId: number; status: string }>({
+    url: `/obe/tasks/${taskId}/jobs/${jobId}/cancel`,
     method: 'post'
   });
 }

@@ -44,6 +44,7 @@ def ensure_tables_and_seed() -> None:
         LessonPlanTask,
         ObeGradingJob,
         ObeGradingJobDetail,
+        ObeGradingRubric,
         ObeStudent,
         ObeTask,
         User,

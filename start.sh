@@ -82,7 +82,7 @@ stop_port() {  # <port> <name>
     local port=$1 name=$2 pids
     pids="$(port_pids "$port")"
     [ -z "$pids" ] && return 0
-    log_info "停止 $name（port $port, pid $(echo $pids | tr '\n' ' ')）"
+    log_info "停止 ${name}（port $port, pid $(echo $pids | tr '\n' ' ')）"
     kill $pids 2>/dev/null || true
     local i=0
     while [ "$i" -lt 8 ]; do
@@ -120,7 +120,7 @@ start_backend() {
     if wait_port "$BE_PORT" 30; then
         log_success "后端已就绪（pid $(cat "$BE_PID_FILE")）"
     else
-        log_error "后端 30s 内未监听 $BE_PORT，日志片段："
+        log_error "后端 30s 内未监听 ${BE_PORT}，日志片段："
         tail -n 15 "$BE_LOG" 2>/dev/null
     fi
 }
@@ -134,10 +134,10 @@ start_frontend() {
         : > "$FE_LOG"
         (cd "$WEB_DIR" && pnpm build) >> "$FE_LOG" 2>&1 || {
             log_error "前端构建失败，日志片段："; tail -n 20 "$FE_LOG"; return 1; }
-        log_info "启动前端 [prod] → http://localhost:$port（vite preview）"
+        log_info "启动前端 [prod] → http://localhost:${port}（vite preview）"
     else
         port=$FE_DEV_PORT; cmd="dev"
-        log_info "启动前端 [dev] → http://localhost:$port（vite dev, HMR）"
+        log_info "启动前端 [dev] → http://localhost:${port}（vite dev, HMR）"
         : > "$FE_LOG"
     fi
     if port_in_use "$port"; then
@@ -156,7 +156,7 @@ start_frontend() {
     if wait_port "$port" 60; then
         log_success "前端已就绪 → http://localhost:$port"
     else
-        log_error "前端 60s 内未监听 $port，日志片段："
+        log_error "前端 60s 内未监听 ${port}，日志片段："
         tail -n 15 "$FE_LOG" 2>/dev/null
     fi
 }
@@ -205,7 +205,7 @@ tail_logs() {
         *) log_error "用法: ./start.sh logs fe|be"; return 1 ;;
     esac
     [ -f "$f" ] || { log_warning "日志不存在: $f"; return; }
-    log_info "跟踪 $f（Ctrl+C 退出）"
+    log_info "跟踪 ${f}（Ctrl+C 退出）"
     tail -n 50 -f "$f"
 }
 
@@ -247,7 +247,7 @@ case "$CMD" in
             all) start_backend "$CMD"; start_frontend "$CMD" ;;
             fe)  start_frontend "$CMD" ;;
             be)  start_backend "$CMD" ;;
-            *)   log_error "未知目标: $TARGET（应为 all / fe / be）"; exit 1 ;;
+            *)   log_error "未知目标: ${TARGET}（应为 all / fe / be）"; exit 1 ;;
         esac
         show_status
         ;;
@@ -257,7 +257,7 @@ case "$CMD" in
     restart)
         MODE="${1:-dev}"
         TARGET="${2:-all}"
-        log_info "重启（$MODE $TARGET）"
+        log_info "重启（$MODE ${TARGET}）"
         stop_all
         sleep 1
         exec "$0" "$MODE" "$TARGET"

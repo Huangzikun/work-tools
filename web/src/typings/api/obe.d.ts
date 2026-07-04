@@ -144,12 +144,31 @@ declare namespace Api {
 
     // ============ 触发批改 / 进度 ============
 
+    interface RubricDimension {
+      name: string;
+      maxScore: number;
+      criteria: string;
+    }
+
+    interface RubricSnapshot {
+      courseName: string;
+      dimensions: RubricDimension[];
+      freeText: string;
+      scoreLevels?: number[] | null;
+      updatedAt?: string | null;
+    }
+
     interface GradeRequest {
       dirType: string;
       experimentLabel: string;
       teacherName: string;
       signDate: string;
+      /** 总体要求（自由文本：评语风格/档位说明等），与 rubricDimensions 至少一个非空 */
       teacherPrompt: string;
+      /** 结构化评分维度（教师完全控制评分标准） */
+      rubricDimensions?: RubricDimension[];
+      /** 教师自定义分数档位（如 [90,80,70,60,50]）；不传则用默认七档或自由文本解析 */
+      scoreLevels?: number[] | null;
       systemPrompt?: string;
       signPicture: File;
       /** 默认 true：只批改 pending/failed；false 时全量重跑（含已 graded） */

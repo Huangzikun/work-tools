@@ -36,6 +36,15 @@ def create_app(config_class=Config):
     except Exception as exc:  # 启动期清理失败不应阻塞 app
         app.logger.exception("cleanup_zombie_grading failed: %s", exc)
 
+    # 幂等建 obe_grading_rubric 表 + 给 obe_grading_job 加列（项目无 alembic，靠启动钩子）
+    from services.obe_grading import ensure_obe_rubric_schema
+
+    try:
+        with app.app_context():
+            ensure_obe_rubric_schema()
+    except Exception as exc:
+        app.logger.exception("ensure_obe_rubric_schema failed: %s", exc)
+
     # 清理教案生成僵尸任务
     from services.lesson_plan_service import cleanup_zombie_tasks
 
